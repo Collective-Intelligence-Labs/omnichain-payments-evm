@@ -18,7 +18,7 @@ contract Processor {
         bytes32 s;
         bytes32 r;
         uint8 v;
-        AssetTransfer data;
+        bytes data;
     }
 
     struct AssetTransfer {
@@ -44,74 +44,78 @@ contract Processor {
         permitToken = ERC20Permit(_targetTokenAddress);
     }
 
-    function processCmds(TransferData[] memory jsonList) external {
+    function processCmds(bytes[] calldata jsonList) external {
         for (uint256 i = 0; i < jsonList.length; i++) {
-            TransferData memory transferData = jsonList[i];
-            if (transferData.data.amount == 0) {
+            TransferData memory transferData = abi.decode(jsonList[i], (TransferData));
+            AssetTransfer memory data = abi.decode(transferData.data, (AssetTransfer));
+            if (data.amount == 0) {
                 // Skip iteration if the transfer amount is zero
                 continue;
             }
 
-            if (_nonces[transferData.data.cmd_id] == 0)
+            if (_nonces[data.cmd_id] == 0)
             {
                 continue;
             }
 
-            if (transferData.data.deadline < block.timestamp)
+            if (data.deadline < block.timestamp)
             {
                 continue;
             }
 
             // Ensure that the sender has enough balance to perform the transfer
-            if (processedToken.balanceOf(transferData.data.from) < transferData.data.amount) {
+            if (processedToken.balanceOf(data.from) < data.amount) {
                 // Skip iteration if the sender has insufficient balance
                 continue;
             }
 
             // Validate the signature
-            if ((transferData.data.cmd_type != DEPOSIT) && !validateSignature(transferData.data.from, transferData.v, transferData.r, transferData.s, keccak256(abi.encodePacked(transferData.data.cmd_id, transferData.data.cmd_type, transferData.data.amount, transferData.data.from, transferData.data.to, transferData.data.fee, transferData.data.deadline))))
+            if ((data.cmd_type != DEPOSIT) && !validateSignature(data.from, transferData.v, transferData.r, transferData.s, keccak256(abi.encodePacked(data.cmd_id, data.cmd_type, data.amount, data.from, data.to, data.fee, data.deadline))))
             {   // Skip iteration if the signature is invalid
                 continue;
             }
 
-            if (transferData.data.cmd_type == TRANSFER)
+            if (data.cmd_type == TRANSFER)
             {
                 // Perform the transfer
-                processedToken.transferFrom(transferData.data.from, transferData.data.to, transferData.data.amount);
-                emit TokensTransfered(msg.sender, transferData.data.amount, transferData.data.amount,transferData.data.fee);
+                processedToken.transferFrom(data.from, data.to, data.amount);
+                emit TokensTransfered(msg.sender, data.amount, data.amount, data.fee);
             }
 
-            if (transferData.data.cmd_type == DEPOSIT)
+            if (data.cmd_type == DEPOSIT)
             {
-                permitToken.permit(transferData.data.from, address(this), transferData.data.amount, transferData.data.deadline, transferData.v, transferData.r, transferData.s);
-                if (!usdtToken.transferFrom(transferData.data.from, address(this), transferData.data.amount))
+                permitToken.permit(data.from, address(this), data.amount, data.deadline, transferData.v, transferData.r, transferData.s);
+                if (!usdtToken.transferFrom(data.from, address(this), data.amount))
                 {
                     continue;
                 }
-                processedToken.mint(transferData.data.to, transferData.data.amount);
-                emit TokenDeposited(msg.sender, transferData.data.to, transferData.data.amount);
+                processedToken.mint(data.to, data.amount);
+                emit TokenDeposited(msg.sender, data.to, data.amount);
             }
 
-            if (transferData.data.cmd_type == WITHDRAW)
+            if (data.cmd_type == WITHDRAW)
             {
-                if (processedToken.balanceOf(transferData.data.from) > transferData.data.amount)
+                if (processedToken.balanceOf(data.from) > data.amount)
                 {
-                    processedToken.burn(msg.sender, transferData.data.amount);
-                    usdtToken.transfer(msg.sender, transferData.data.amount);
-                    emit TokensWithdrawn(msg.sender, transferData.data.amount);
+                    processedToken.burn(msg.sender, data.amount);
+                    usdtToken.transfer(msg.sender, data.amount);
+                    emit TokensWithdrawn(msg.sender, data.amount);
                 }
             }
 
             // Perform the transfer fee
-            processedToken.transferFrom(transferData.data.from, msg.sender, transferData.data.fee);
+            processedToken.transferFrom(data.from, msg.sender, data.fee);
 
-            _nonces[transferData.data.cmd_id] = block.timestamp;
+            _nonces[data.cmd_id] = block.timestamp;
 
-            emit TokensProcessed(msg.sender, transferData.data.amount, transferData.data.amount,transferData.data.fee);
+            emit TokensProcessed(msg.sender, data.amount, data.amount, data.fee);
         }
     }
+
+    function calculateDigest() internal pure returns (bytes32) {
+    }
     
-    function validateSignature(address from,   uint8 v,  bytes32 r, bytes32 s, bytes32 dataHash) internal pure returns (bool) {
+    function validateSignature(address from, uint8 v, bytes32 r, bytes32 s, bytes32 dataHash) internal pure returns (bool) {
         address recoveredAddress = ecrecover(dataHash, v, r, s);
         return recoveredAddress == from;
     }
