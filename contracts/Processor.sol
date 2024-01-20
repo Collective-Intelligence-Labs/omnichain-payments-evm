@@ -15,9 +15,7 @@ contract Processor {
     uint public constant WITHDRAW = 3;
 
     struct TransferData {
-        bytes32 s;
-        bytes32 r;
-        uint8 v;
+        bytes sign;
         bytes data;
     }
 
@@ -48,6 +46,7 @@ contract Processor {
         for (uint256 i = 0; i < jsonList.length; i++) {
             TransferData memory transferData = abi.decode(jsonList[i], (TransferData));
             AssetTransfer memory data = abi.decode(transferData.data, (AssetTransfer));
+            (uint8 v, bytes32 r, bytes32 s) = splitSignatureWithSlicing(transferData.sign);
             if (data.amount == 0) {
                 // Skip iteration if the transfer amount is zero
                 continue;
@@ -70,7 +69,8 @@ contract Processor {
             }
 
             // Validate the signature
-            if ((data.cmd_type != DEPOSIT) && !validateSignature(data.from, transferData.v, transferData.r, transferData.s, keccak256(abi.encodePacked(data.cmd_id, data.cmd_type, data.amount, data.from, data.to, data.fee, data.deadline))))
+            if ((data.cmd_type != DEPOSIT) && 
+                !validateSignature(data.from, v, r, s, calculateHash(transferData.data)))
             {   // Skip iteration if the signature is invalid
                 continue;
             }
@@ -84,7 +84,7 @@ contract Processor {
 
             if (data.cmd_type == DEPOSIT)
             {
-                permitToken.permit(data.from, address(this), data.amount, data.deadline, transferData.v, transferData.r, transferData.s);
+                permitToken.permit(data.from, address(this), data.amount, data.deadline, v, r, s);
                 if (!usdtToken.transferFrom(data.from, address(this), data.amount))
                 {
                     continue;
@@ -105,15 +105,32 @@ contract Processor {
 
             // Perform the transfer fee
             processedToken.transferFrom(data.from, msg.sender, data.fee);
-
             _nonces[data.cmd_id] = block.timestamp;
-
             emit TokensProcessed(msg.sender, data.amount, data.amount, data.fee);
         }
     }
 
-    function calculateDigest() internal pure returns (bytes32) {
+    function calculateHash(bytes memory data) internal pure returns (bytes32) {
+        return keccak256(data);
     }
+
+    function splitSignatureWithSlicing(bytes memory signature) public pure returns (uint8 v, bytes32 r, bytes32 s){
+        // Divide the signature in r, s and v variables with inline assembly.
+        assembly {
+        r := mload(add(signature, 0x20))
+        s := mload(add(signature, 0x40))
+        v := byte(0, mload(add(signature, 0x60)))
+        }
+
+    }
+
+    /*
+
+    function calculateDigest(AssetTransfer memory data) internal pure returns (bytes32) {
+        return keccak256(abi.encodePacked(data.cmd_id, data.cmd_type, data.amount, data.from, data.to, data.fee, data.deadline));
+    }
+
+    */
     
     function validateSignature(address from, uint8 v, bytes32 r, bytes32 s, bytes32 dataHash) internal pure returns (bool) {
         address recoveredAddress = ecrecover(dataHash, v, r, s);
