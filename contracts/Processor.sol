@@ -7,10 +7,10 @@ import "./OwnableERC20Token.sol";
 
 contract Processor {
     OwnableERC20Token public processedToken;
-    IERC20 public usdtToken;
+    IERC20 public targetToken;
     ERC20Permit public permitToken;
 
-    mapping(uint => function (AssetTransfer memory, Operataion memory) internal returns(bool)) handlers;
+    mapping(uint => function (AssetTransfer memory, Operation memory) internal returns(bool)) handlers;
 
     uint public constant TRANSFER = 1;
     uint public constant DEPOSIT = 2;
@@ -23,8 +23,8 @@ contract Processor {
         address to;
     }
 
-    struct Operataion {
-        bytes[] commands;
+    struct Operation {
+        AssetTransfer[] commands;
         bytes[] signatures;
         Metadata metadata;
     }
@@ -36,7 +36,7 @@ contract Processor {
         uint256 fee;
         uint256 deadline;
     }
-
+    
     mapping(uint256 => uint256) private _nonces; 
 
     event TokensProcessed(address indexed sender, uint256 usdtAmount, uint256 processedTokenAmount, uint256 fee);
@@ -46,14 +46,15 @@ contract Processor {
 
     constructor(address _targetTokenAddress, address _internalTokenAddress) {
         processedToken = OwnableERC20Token(_internalTokenAddress);
-        usdtToken = IERC20(_targetTokenAddress);
+        targetToken = IERC20(_targetTokenAddress);
         permitToken = ERC20Permit(_targetTokenAddress);
         handlers[TRANSFER] = transfer;
         handlers[DEPOSIT] = deposit;
-        handlers[WITHDRAW] = withdraw;
+        handlers[WITHDRAW] =
+         withdraw;
     }
 
-    function transfer(AssetTransfer memory data, Operataion memory op) internal returns(bool) {
+    function transfer(AssetTransfer memory data, Operation memory op) internal returns(bool) {
         if (processedToken.balanceOf(data.from) < data.amount) {
                 // Skip iteration if the sender has insufficient balance
                 return false;
@@ -64,10 +65,10 @@ contract Processor {
         return true;
     }
 
-    function deposit(AssetTransfer memory data, Operataion memory op) internal returns(bool) {
+    function deposit(AssetTransfer memory data, Operation memory op) internal returns(bool) {
         (uint8 v, bytes32 r, bytes32 s) = splitSignatureWithSlicing(op.signatures[0]);
         permitToken.permit(data.from, address(this), data.amount, op.metadata.deadline, v, r, s);
-                if (!usdtToken.transferFrom(data.from, address(this), data.amount))
+                if (!targetToken.transferFrom(data.from, address(this), data.amount))
                 {
                     return false;
                 }
@@ -76,29 +77,30 @@ contract Processor {
         return true;
     }
 
-    function withdraw(AssetTransfer memory data, Operataion memory op) internal returns(bool) {
+    function withdraw(AssetTransfer memory data, Operation memory op) internal returns(bool) {
          if (processedToken.balanceOf(data.from) > data.amount)
                 {
                     processedToken.burn(msg.sender, data.amount);
-                    usdtToken.transfer(msg.sender, data.amount);
+                    targetToken.transfer(msg.sender, data.amount);
                     emit TokensWithdrawn(msg.sender, data.amount);
                 }
         return true;
     }
 
-    function processCmds(bytes[] calldata ops) external returns (uint256[] memory){
+    
+
+    function processOperations(Operation[] calldata ops) external returns (uint256[] memory){
         uint256[] memory ids = new uint256[](ops.length);
         for (uint256 i = 0; i < ops.length; i++) {
-            Operataion memory op = abi.decode(ops[i], (Operataion));
-            if (processOperation(op))
+            if (processOperation(ops[i]))
             {
-                ids[i] = op.metadata.id;
+                ids[i] = ops[i].metadata.id;
             }
         }
         return ids;
     }
 
-    function processOperation(Operataion memory op) internal returns (bool) {
+    function processOperation(Operation memory op) internal returns (bool) {
         address[] memory signers = extractSigners(op);
         if (_nonces[op.metadata.id] != 0) {
             return false;
@@ -119,22 +121,17 @@ contract Processor {
         return true;
     }
 
-    function processCommand(bytes memory cmdBytes, Metadata memory metadata, address[] memory signers, Operataion memory op) internal returns (bool)
+    function processCommand(AssetTransfer memory cmd, Metadata memory metadata, address[] memory signers, Operation memory op) internal returns (bool)
     {   
-         AssetTransfer memory cmd = abi.decode(cmdBytes, (AssetTransfer));
-         function (AssetTransfer memory, Operataion memory) internal returns(bool)  handler = handlers[cmd.cmd_type];
+         function (AssetTransfer memory, Operation memory) internal returns(bool)  handler = handlers[cmd.cmd_type];
          return handler(cmd, op);
     }
 
-    function calculateHash(bytes memory data) internal pure returns (bytes32) {
-        return keccak256(data);
-    }
-
-    function calculateOperaionHash(Operataion memory op) internal pure returns (bytes32) {
+    function calculateOperaionHash(Operation memory op) internal pure returns (bytes32) {
         return keccak256(abi.encode(op.commands, op.metadata));
     }
 
-    function extractSigners(Operataion memory op) internal pure returns (address[] memory) {
+    function extractSigners(Operation memory op) internal pure returns (address[] memory) {
         bytes32 dataHash = calculateOperaionHash(op);
         address[] memory recovered = new address[](op.signatures.length);
         for (uint i = 0; i < op.signatures.length; i++) {
