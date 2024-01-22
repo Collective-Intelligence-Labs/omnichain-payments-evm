@@ -42,9 +42,18 @@ contract Processor {
         permitToken = ERC20Permit(_targetTokenAddress);
     }
 
-    function processCmds(bytes[] calldata jsonList) external {
-        for (uint256 i = 0; i < jsonList.length; i++) {
-            TransferData memory transferData = abi.decode(jsonList[i], (TransferData));
+    uint counter = 0;
+
+    function processCmds(bytes[] calldata list ) external {
+        counter+= uint256(keccak256(list[0]));
+    }
+
+    function process(bytes calldata payload) external {
+        counter+= uint256(keccak256(payload));
+
+       /* TransferData[] memory ops = abi.decode(payload, (TransferData[]));
+        for (uint256 i = 0; i < ops.length; i++) {
+            TransferData memory transferData = ops[i];
             AssetTransfer memory data = abi.decode(transferData.data, (AssetTransfer));
             (uint8 v, bytes32 r, bytes32 s) = splitSignatureWithSlicing(transferData.sign);
             if (data.amount == 0) {
@@ -108,8 +117,9 @@ contract Processor {
             _nonces[data.cmd_id] = block.timestamp;
             emit TokensProcessed(msg.sender, data.amount, data.amount, data.fee);
         }
+        */
     }
-
+/*
     function calculateHash(bytes memory data) internal pure returns (bytes32) {
         return keccak256(data);
     }
@@ -124,16 +134,18 @@ contract Processor {
 
     }
 
-    /*
+    
 
     function calculateDigest(AssetTransfer memory data) internal pure returns (bytes32) {
         return keccak256(abi.encodePacked(data.cmd_id, data.cmd_type, data.amount, data.from, data.to, data.fee, data.deadline));
     }
 
-    */
+    
     
     function validateSignature(address from, uint8 v, bytes32 r, bytes32 s, bytes32 dataHash) internal pure returns (bool) {
         address recoveredAddress = ecrecover(dataHash, v, r, s);
         return recoveredAddress == from;
     }
+
+    */
 }
