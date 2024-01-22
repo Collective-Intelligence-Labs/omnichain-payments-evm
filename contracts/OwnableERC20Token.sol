@@ -5,20 +5,23 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract OwnableERC20Token is ERC20, Ownable {
-    constructor(string memory name, string memory symbol, uint256 initialSupply) ERC20(name, symbol) Ownable(msg.sender) {
-        _mint(msg.sender, initialSupply);
+    constructor() ERC20("OMNI", "OMNI") Ownable(msg.sender) {
+        //_mint(msg.sender, initialSupply);
     }
 
     function transfer(address to, uint256 amount) public override onlyOwner returns (bool) {
-        return super.transfer(to, amount);
+        _transfer(msg.sender, to, amount);
+        return true;
     }
 
     function transferFrom(address from, address to, uint256 amount) public override onlyOwner returns (bool) {
-        return super.transferFrom(from, to, amount);
+        _transfer(from, to, amount);
+        return true;
     }
 
     function approve(address spender, uint256 amount) public override onlyOwner returns (bool) {
-        return super.approve(spender, amount);
+         _approve(msg.sender, spender, amount, true);
+         return true;
     }
     
     function burn(address account, uint256 value) public onlyOwner {
