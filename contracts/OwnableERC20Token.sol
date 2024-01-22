@@ -5,8 +5,8 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
 contract OwnableERC20Token is ERC20, Ownable {
-    constructor() ERC20("OMNI", "OMNI") Ownable(msg.sender) {
-        //_mint(msg.sender, initialSupply);
+    constructor(uint256 initialSupply) ERC20("OMNI", "OMNI") Ownable(msg.sender) {
+        _mint(msg.sender, initialSupply);
     }
 
     function transfer(address to, uint256 amount) public override onlyOwner returns (bool) {

@@ -30,7 +30,11 @@ contract Processor {
         address to;
     }
 
-    mapping(uint256 nonce => uint256) private _nonces; 
+    mapping(uint256 => uint256) private _nonces;
+
+    // Events
+    event OperationProcessed(uint256 op_id);
+    event CommandProcessed(address from, address to, uint256 amount);
 
     constructor(address _targetTokenAddress, address _internalTokenAddress) {
         processedToken = OwnableERC20Token(_internalTokenAddress);
@@ -38,63 +42,41 @@ contract Processor {
         permitToken = ERC20Permit(_targetTokenAddress);
     }
 
-  
-
     function processOperation(TransferData calldata op) internal {
-        if (_nonces[op.op_id] != 0)
-            {
-                return;
-            }
-            if (op.deadline < block.timestamp)
-            {
-                return;
-            }
+        require(_nonces[op.op_id] == 0);
+        require(op.deadline >= block.timestamp);
 
             for (uint256 j = 0; j < op.commands.length; j++) {
-                if (!processCommand(op.commands[j]))
-                {
+                if (!processCommand(op.commands[j])) {
                     break;
                 }
             }
-
-              // Perform the transfer fee
+            // Perform the transfer fee
             processedToken.transferFrom(op.payee, op.router, op.fee);
-
             _nonces[op.op_id] = block.timestamp;
+            emit OperationProcessed(op.op_id);
     }
 
-    function processCommand(AssetTransfer calldata cmd) internal returns (bool){    
-                if (cmd.amount == 0) {
-                    // Skip iteration if the transfer amount is zero
-                    return false;
-                }
+    function processCommand(AssetTransfer calldata cmd) internal returns (bool) {    
+        require(cmd.amount != 0);
+        require(processedToken.balanceOf(cmd.from) >= cmd.amount);
+        /*
+        uint256 allowance = targetToken.allowance(cmd.from, address(this));
+        if (allowance > 0) {
+            targetToken.transferFrom(cmd.from, address(this), allowance);
+            processedToken.mint(cmd.from, allowance);
+        }
 
-                // Ensure that the sender has enough balance to perform the transfer
-                if (processedToken.balanceOf(cmd.from) < cmd.amount) {
-                    // Skip iteration if the sender has insufficient balance
-                    return false;
-                }
+        */
 
-                uint256 allowance = targetToken.allowance(cmd.from, address(this));
-                if (allowance > 0)
-                {
-                    targetToken.transferFrom(cmd.from, address(this), allowance);
-                    processedToken.mint(cmd.from, allowance);
-                }
-                // Perform the transfer
-                processedToken.transferFrom(cmd.from, cmd.to, cmd.amount);
-                return true;
+        processedToken.transferFrom(cmd.from, cmd.to, cmd.amount);
+        emit CommandProcessed(cmd.from, cmd.to, cmd.amount);
+        return true;
     }
 
-      function process(TransferData[] calldata ops) external {
+    function process(TransferData[] calldata ops) external {
         for (uint256 i = 0; i < ops.length; i++) {
-
             processOperation(ops[i]);
         }
-    }
-    
-    function validateSignature(address from,   uint8 v,  bytes32 r, bytes32 s, bytes32 dataHash) internal pure returns (bool) {
-        address recoveredAddress = ecrecover(dataHash, v, r, s);
-        return recoveredAddress == from;
     }
 }
