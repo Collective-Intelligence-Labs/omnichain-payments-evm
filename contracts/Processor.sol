@@ -17,13 +17,13 @@ contract Processor {
     uint public constant WITHDRAW = 3;
 
     struct AssetTransfer {
-        uint256 cmd_type;
         uint256 amount;
         address from;
         address to;
     }
 
     struct Operation {
+        uint256[] cmd_types;
         AssetTransfer[] commands;
         bytes[] signatures;
         Metadata metadata;
@@ -31,9 +31,7 @@ contract Processor {
 
     struct Metadata {
         uint256 id;
-        address payee;
-        address router;
-        uint256 fee;
+        address portal;
         uint256 deadline;
     }
     
@@ -110,20 +108,19 @@ contract Processor {
             return false;
         }
         for (uint256 i = 0; i < op.commands.length; i++) {
-            processCommand(op.commands[i], op.metadata, signers, op);
+            processCommand(op.cmd_types[i], op.commands[i], op.metadata, signers, op);
         }
         _nonces[op.metadata.id] = block.timestamp;
-        if (signers[0] != op.metadata.payee)
+        if (signers[0] != op.metadata.portal)
         {
             return false;
         }
-        processedToken.transferFrom(op.metadata.payee, op.metadata.router, op.metadata.fee);
         return true;
     }
 
-    function processCommand(AssetTransfer memory cmd, Metadata memory metadata, address[] memory signers, Operation memory op) internal returns (bool)
+    function processCommand(uint256 cmd_type, AssetTransfer memory cmd, Metadata memory metadata, address[] memory signers, Operation memory op) internal returns (bool)
     {   
-         function (AssetTransfer memory, Operation memory) internal returns(bool)  handler = handlers[cmd.cmd_type];
+         function (AssetTransfer memory, Operation memory) internal returns(bool)  handler = handlers[cmd_type];
          return handler(cmd, op);
     }
 
