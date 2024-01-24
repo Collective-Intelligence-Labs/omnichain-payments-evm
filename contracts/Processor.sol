@@ -14,17 +14,16 @@ contract Processor {
         bytes32 s;
         bytes32 r;
         uint8 v;
-        uint256 fee;
         uint256 deadline;
         uint256 op_id;
         bytes32 datahash;
-        address payee;
-        address router;
+        address portal; //the one who pays transaction fee to the router
         AssetTransfer[] commands;
+        uint256[] cmd_types;
+        bytes[] signatures;
     }
 
     struct AssetTransfer {
-        uint256 cmd_type;
         uint256 amount;
         address from;
         address to;
@@ -51,8 +50,6 @@ contract Processor {
                     break;
                 }
             }
-            // Perform the transfer fee
-            processedToken.transferFrom(op.payee, op.router, op.fee);
             _nonces[op.op_id] = block.timestamp;
             emit OperationProcessed(op.op_id);
     }
