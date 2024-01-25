@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
@@ -11,12 +11,8 @@ contract Processor {
     ERC20Permit public permitToken;
 
     struct TransferData {
-        bytes32 s;
-        bytes32 r;
-        uint8 v;
         uint256 deadline;
         uint256 op_id;
-        bytes32 datahash;
         address portal; //the one who pays transaction fee to the router
         AssetTransfer[] commands;
         uint256[] cmd_types;
@@ -55,8 +51,8 @@ contract Processor {
     }
 
     function processCommand(AssetTransfer calldata cmd) internal returns (bool) {    
-        require(cmd.amount != 0);
-        require(processedToken.balanceOf(cmd.from) >= cmd.amount);
+        require(cmd.amount != 0, "Empty transfer.");
+        require(processedToken.balanceOf(cmd.from) >= cmd.amount, "Not enough funds.");
         /*
         uint256 allowance = targetToken.allowance(cmd.from, address(this));
         if (allowance > 0) {

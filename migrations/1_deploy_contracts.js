@@ -3,7 +3,7 @@ const Processor = artifacts.require("Processor");
 
 module.exports = async function(deployer) {
 
-  //await deployer.deploy(OwnableERC20Token, "oUSD", "oUSD", 0);
+  await deployer.deploy(OwnableERC20Token, "oUSD", "oUSD", 0);
   //const tokenInstance = await OwnableERC20Token.deployed();
 
   // Deploy Processor
