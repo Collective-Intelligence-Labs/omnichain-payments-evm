@@ -38,7 +38,7 @@ contract Processor {
     }
 
     function processOperation(TransferData calldata op) internal {
-        require(_nonces[op.op_id] == 0);
+        require(_nonces[op.op_id] == 0, "Nonce already used");
         require(op.deadline >= block.timestamp);
 
             for (uint256 j = 0; j < op.commands.length; j++) {
