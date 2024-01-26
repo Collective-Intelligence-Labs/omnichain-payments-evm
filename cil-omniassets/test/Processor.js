@@ -3,6 +3,7 @@ const {
   loadFixture,
 } = require("@nomicfoundation/hardhat-toolbox/network-helpers");
 const { anyValue } = require("@nomicfoundation/hardhat-chai-matchers/withArgs");
+require("@nomicfoundation/hardhat-ethers");
 const { expect } = require("chai");
 
 const { randomBytes, randomInt } = require('crypto');
@@ -13,31 +14,30 @@ function getRandomBytes32() {
   return '0x' + randomBytes(32).toString('hex');
 }
 
-function createTransferOperation(sender, commands, opId = null, deadlineOffset = 1000) {
-  const deadline = now() + deadlineOffset;
-  
-  return {
-    deadline,
-    op_id: opId ?? randomInt(),
-    portal: sender.address,
-    commands: commands,
-    cmd_types: commands.map(() => 1), // Assuming 1 is the type for a simple transfer
-    signatures: commands.map(() => getRandomBytes32()) // Mocked or calculated signatures
-  };
-}
+async function createTransferOperation(sender, commands, opId, deadlineOffset = 1000) {
+  const deadline = BigInt(Math.floor(Date.now() / 1000) + deadlineOffset);
+  const cmdTypes = commands.map(() => 1); 
 
-function createTransferOperation(sender, commands, opId, deadlineOffset = 1000) {
-  const deadline = Date.now() + deadlineOffset;
+  // Sign the message with the sender's private key
+  const signature = await createSignature(sender, deadline, opId, commands, cmdTypes);
   
   return {
-    deadline,
+    deadline: deadline,
     op_id: opId,
     portal: sender.address,
     commands: commands,
     cmd_types: commands.map(() => 1), // Assuming 1 is the type for a simple transfer
-    signatures: commands.map(() => getRandomBytes32()) // Mocked or calculated signatures
+    signatures: [signature] // Mocked or calculated signatures
   };
 } 
+
+async function createSignature(sender, deadline, opId, commands, cmdTypes ){
+  const packedData = encodeDataForSignature(deadline, opId, sender.address, commands, cmdTypes);
+  const dataHash = ethers.keccak256(packedData);
+
+  const signature = await sender.signMessage(dataHash);
+  return signature;
+}
 
 function createTransferCommand(from, to, amount) {
   return {
@@ -47,6 +47,23 @@ function createTransferCommand(from, to, amount) {
   };
 }
 
+function encodeDataForSignature(deadline, opId, portal, commands, cmdTypes) {
+  // Encoding commands separately
+  const coder = new ethers.AbiCoder();
+
+  const encodedCommands = coder.encode(
+    ["tuple(uint256 amount, address from, address to)[]"],
+    [commands]
+  );
+
+  // Concatenating all parts as in Solidity's abi.encodePacked
+  const packedData = coder.encode(
+    ["uint256", "uint256", "address", "bytes", "uint256[]"],
+    [deadline, opId, portal, encodedCommands, cmdTypes]
+  );
+
+  return packedData;
+}
 
 describe("Processor Contract", function () {
   let USDTMock;
@@ -74,18 +91,12 @@ describe("Processor Contract", function () {
 
     await usdt.mint(owner.address, 100000000);
     await usdt.mint(addr1.address, 10000);
-    await usdt.mint(addr2.address, 20000);
 
     // Deploy OwnableERC20Token with 0 initial supply
     ownableToken = await OwnableERC20Token.deploy(0);
 
     await ownableToken.mint(addr1.address, 10000);
-    await ownableToken.mint(addr2.address, 20000);
-
-  
-
-    console.log("USDT: " + usdt.target);
-    console.log("OMNI ASSET: " + ownableToken.target);
+    
     // Deploy Processor contract
     processor = await Processor.deploy(usdt.target, ownableToken.target);
     
@@ -105,127 +116,89 @@ describe("Processor Contract", function () {
 
 
     it("Should transfer USDT tokens using the process method", async function () {
-      const transferAmount = BigInt(100);
-      user1 = addr1;
-      user2 = addr2;
-      // User1 approves Processor contract to spend their USDT
-      await usdt.connect(user1).approve(processor.target, transferAmount);
-
-      const balance1 = await ownableToken.balanceOf(user1.address);
-      const balance2 = await ownableToken.balanceOf(user2.address);
-  
-      // Create TransferData and AssetTransfer structures
-      const transferData = {
-     
-        deadline: (await ethers.provider.getBlock('latest')).timestamp + 1000,
-        op_id: 1,
-        portal: user1.address,
-        commands: [{
-          amount: transferAmount,
-          from: user1.address,
-          to: user2.address
-        }],
-        cmd_types: [1], // Assuming 0 is the type for a simple transfer
-        signatures: [getRandomBytes32()] // Mocked or calculated signatures
-      };
-  
-      // Call the process method
-      await processor.process([transferData]);
-
-      
-      // Check balances after transfer
-      expect(await ownableToken.balanceOf(user2.address)).to.equal(balance2 + transferAmount);
+      const transferAmount = 100;
+      const command = createTransferCommand(addr1.address, addr2.address, transferAmount);
+      const operation = await createTransferOperation(addr1, [command], 1);
+    
+      await processor.process([operation]);
+    
+      const balanceAfter = await ownableToken.balanceOf(addr2.address);
+      expect(balanceAfter).to.equal(transferAmount);
     });
+    
 
     it("Should process multiple transfer commands", async function () {
       const transferAmount1 = BigInt(10);
-      const transferAmount2 = BigInt(20);
-
-      const balance1 = await ownableToken.balanceOf(user1.address);
-      const balance2 = await ownableToken.balanceOf(user2.address);
-  
-      const transferData = {
-          deadline: (await ethers.provider.getBlock('latest')).timestamp + 1000,
-          op_id: 2,
-          portal: addr1.address,
-          commands: [
-              {
-                  amount: transferAmount1,
-                  from: addr1.address,
-                  to: addr2.address
-              },
-              {
-                  amount: transferAmount2,
-                  from: addr2.address,
-                  to: addr1.address
-              }
-          ],
-          cmd_types: [1, 1], // Assuming 1 is the type for a simple transfer
-          signatures: [getRandomBytes32(), getRandomBytes32()] // Mocked or calculated signatures
-      };
-  
-      await processor.process([transferData]);
-  
-
-      expect(await ownableToken.balanceOf(user1.address)).to.equal(balance1 + transferAmount2 - transferAmount1);
-      expect(await ownableToken.balanceOf(user2.address)).to.equal(balance2 + transferAmount1 - transferAmount2);
-      // Check balances after transfers
-      // Add your assertions here
-    });
-    it("Should fail for nonce reuse", async function () {
-      const transferAmount = BigInt(100);
-      user1 = addr1;
-      user2 = addr2;
-      // User1 approves Processor contract to spend their USDT
-      await usdt.connect(user1).approve(processor.target, transferAmount);
-
-      const balance1 = await ownableToken.balanceOf(user1.address);
-      const balance2 = await ownableToken.balanceOf(user2.address);
-  
-      // Create TransferData and AssetTransfer structures
-      const transferData = {
+      const transferAmount2 = BigInt(5);
+      const balance1 = await ownableToken.balanceOf(addr1.address);
+      const balance2 = await ownableToken.balanceOf(addr2.address);
+      const command1 = createTransferCommand(addr1.address, addr2.address, transferAmount1);
+      const command2 = createTransferCommand(addr2.address, addr1.address, transferAmount2);
+    
+      const operation = await createTransferOperation(addr1, [command1, command2], 2);
+    
+      await processor.process([operation]);
+      // Assertions
+      expect(await ownableToken.balanceOf(addr1.address)).to.equal(balance1 + transferAmount2 - transferAmount1);
+      expect(await ownableToken.balanceOf(addr2.address)).to.equal(balance2 + transferAmount1 - transferAmount2);
      
-        deadline: (await ethers.provider.getBlock('latest')).timestamp + 1000,
-        op_id: 1,
-        portal: user1.address,
-        commands: [{
-          amount: transferAmount,
-          from: user1.address,
-          to: user2.address
-        }],
-        cmd_types: [1], // Assuming 0 is the type for a simple transfer
-        signatures: [getRandomBytes32()] // Mocked or calculated signatures
-      };
-  
-      // First call to process (considered in a previous test)
-      await processor.process([transferData]);
-  
-      // Second call with the same op_id
-      await expect(processor.process([transferData]))
-          .to.be.revertedWith("Nonce already used"); // Replace with your actual error message
     });
-
+    
+    it("Should fail for nonce reuse", async function () {
+      const transferAmount = 100;
+      const command = createTransferCommand(addr1.address, addr2.address, transferAmount);
+      const operation = await createTransferOperation(addr1, [command], 3);
+  
+      await processor.process([operation]);
+    
+      // Trying to process the same operation again
+      await expect(processor.process([operation]))
+        .to.be.revertedWith("Nonce already used");
+    });
+    
     it("Should fail for zero transfer amount", async function () {
       const transferAmount = BigInt(0);
   
       // Create TransferData and AssetTransfer structures
-      const transferData = {
-     
-        deadline: (await ethers.provider.getBlock('latest')).timestamp + 1000,
-        op_id: 1,
-        portal: user1.address,
-        commands: [{
-          amount: transferAmount,
-          from: user1.address,
-          to: user2.address
-        }],
-        cmd_types: [1], // Assuming 0 is the type for a simple transfer
-        signatures: [getRandomBytes32()] // Mocked or calculated signatures
-      };
-  
-      await expect(processor.process([transferData]))
+      const cmd = createTransferCommand(addr1.address, addr2.address, 0);
+      const op = await createTransferOperation(addr1, [cmd], 34, 1000);
+
+      await expect(processor.process([op]))
           .to.be.revertedWith("Empty transfer."); // Replace with your actual error message
     });
+
+    it("Should fail if the sender has insufficient balance", async function () {
+      const transferAmount = 100000; // An amount greater than the sender's balance
+      const command = createTransferCommand(addr1.address, addr2.address, transferAmount);
+      const operation = await createTransferOperation(addr1, [command], 4);
+    
+      await expect(processor.process([operation]))
+        .to.be.revertedWith("Not enough funds."); // Replace with the actual error message
+    });
+
+
+    it("Should fail if the deadline is in the past", async function () {
+      const transferAmount = 100;
+      const command = createTransferCommand(addr1.address, addr2.address, transferAmount);
+      // Create an operation with a past deadline
+      const operation = await createTransferOperation(addr1, [command], 6, -1000); 
+    
+      await expect(processor.process([operation]))
+        .to.be.revertedWith("Deadline passed"); // Replace with the actual error message
+    });
+    
+
+    it("Should fail if the signature is invalid", async function () {
+      const transferAmount = 100;
+      const command = createTransferCommand(addr1.address, addr2.address, transferAmount);
+      const operation = await createTransferOperation(addr1, [command], 7);
+      operation.signatures = [getRandomBytes32()]; // Replace with an invalid signature
+    
+      await expect(processor.process([operation]))
+        .to.be.revertedWith("Invalid signature"); // Replace with the actual error message
+    });
+    
+    
   
   
   });
