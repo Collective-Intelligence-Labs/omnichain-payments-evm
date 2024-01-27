@@ -10,6 +10,22 @@ contract Processor {
     IERC20 public targetToken;
     ERC20Permit public permitToken;
 
+    uint public constant TRANSFER = 1;
+    uint public constant DEPOSIT = 2;
+    uint public constant WITHDRAW = 3;
+
+     // EIP-712 Domain Separator
+    bytes32 DOMAIN_SEPARATOR;
+
+    // EIP-712 type hashes
+    bytes32 constant ASSET_TRANSFER_TYPEHASH = keccak256("AssetTransfer(uint256 amount,address from,address to)");
+    bytes32 constant OPERATION_TYPEHASH = keccak256(
+        "Operation(uint256 deadline,uint256 op_id,address portal,AssetTransfer[] commands,uint256[] cmd_types)AssetTransfer(uint256 amount,address from,address to)"
+    );
+
+    mapping(uint => function (AssetTransfer memory, Operation memory) internal returns(bool)) handlers;
+    mapping(uint => bool) isHandlerSet;
+
     struct Operation {
         uint256 deadline;
         uint256 op_id;
@@ -28,42 +44,71 @@ contract Processor {
     mapping(uint256 => uint256) private _nonces;
 
     // Events
-    event OperationProcessed(uint256 op_id);
+    event OperationProcessed(uint256 op_id, address[] signers);
     event CommandProcessed(address from, address to, uint256 amount);
 
     constructor(address _targetTokenAddress, address _internalTokenAddress) {
         processedToken = OwnableERC20Token(_internalTokenAddress);
         targetToken = IERC20(_targetTokenAddress);
         permitToken = ERC20Permit(_targetTokenAddress);
+
+        DOMAIN_SEPARATOR = keccak256(
+            abi.encode(
+                keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)"),
+                keccak256(bytes("Processor Contract")),
+                keccak256(bytes("1")),
+                block.chainid,
+                address(this)
+            )
+        );
+        
     }
 
     function processOperation(Operation calldata op) internal {
         require(_nonces[op.op_id] == 0, "Nonce already used");
         require(op.deadline >= block.timestamp, "Deadline passed");
         
-        address[] memory signers = verifySignatures(op.deadline, op.op_id, op.portal, op.commands, op.cmd_types, op.signatures);
+        address[] memory signers = verifySignatures(op);
             for (uint256 j = 0; j < op.commands.length; j++) {
-                if (!processCommand(op.commands[j])) {
+                if (!processCommand(op.cmd_types[j], op.commands[j], signers, op)) {
                     break;
                 }
             }
             _nonces[op.op_id] = block.timestamp;
-            emit OperationProcessed(op.op_id);
+            emit OperationProcessed(op.op_id, signers);
     }
 
-    function processCommand(AssetTransfer calldata cmd) internal returns (bool) {    
+    function processCommand(uint256 cmdType, AssetTransfer calldata cmd, address[] memory signers, Operation calldata op) internal returns (bool) {    
         require(cmd.amount != 0, "Empty transfer.");
         require(processedToken.balanceOf(cmd.from) >= cmd.amount, "Not enough funds.");
-        /*
-        uint256 allowance = targetToken.allowance(cmd.from, address(this));
-        if (allowance > 0) {
-            targetToken.transferFrom(cmd.from, address(this), allowance);
-            processedToken.mint(cmd.from, allowance);
+
+
+    /*
+        // Check if cmd.from is in the signers array
+        bool isAuthorized = false;
+        for (uint i = 0; i < signers.length; i++) {
+            if (cmd.from == signers[i]) {
+                // Optional: Add additional verification here to match the signature with the signer
+                isAuthorized = true;
+                break;
+            }
         }
+        require(isAuthorized, "Sender not authorized");
+        
 
-        */
+    */
 
-        processedToken.transferFrom(cmd.from, cmd.to, cmd.amount);
+
+       if (cmdType == 1){ //TRANSFER
+            processedToken.transferFrom(cmd.from, cmd.to, cmd.amount);
+       }
+       if (cmdType == 2){ //DEPOSIT
+
+            (uint8 v, bytes32 r, bytes32 s) = splitSignature(op.signatures[0]);
+            permitToken.permit(cmd.from, address(this), cmd.amount, op.deadline, v,r,s);
+            targetToken.transferFrom(cmd.from, address(this), cmd.amount);
+            processedToken.mint(cmd.to, cmd.amount);
+       }
         emit CommandProcessed(cmd.from, cmd.to, cmd.amount);
         return true;
     }
@@ -76,21 +121,38 @@ contract Processor {
 
     /// private signature extraction methods
 
-    function verifySignatures(
-        uint256 deadline,
-        uint256 op_id,
-        address portal,
-        AssetTransfer[] memory commands,
-        uint256[] memory cmd_types,
-        bytes[] memory signatures
-    ) public view returns (address[] memory) {
-        bytes32 dataHash = keccak256(abi.encodePacked(deadline, op_id, portal, abi.encode(commands), cmd_types));
-        bytes32 message = prefixed(dataHash);
+    function verifySignatures(Operation calldata op) internal view returns (address[] memory) {
+        bytes32[] memory commandHashes = new bytes32[](op.commands.length);
+        for (uint i = 0; i < op.commands.length; i++) {
+            commandHashes[i] = keccak256(
+                abi.encode(
+                    ASSET_TRANSFER_TYPEHASH,
+                    op.commands[i].amount,
+                    op.commands[i].from,
+                    op.commands[i].to
+                )
+            );
+        }
 
-        address[] memory signers = new address[](signatures.length);
+        bytes32 structHash = keccak256(
+            abi.encode(
+                OPERATION_TYPEHASH,
+                op.deadline,
+                op.op_id,
+                op.portal,
+                keccak256(abi.encode(op.commands)), // Encode commands array
+                keccak256(abi.encodePacked(op.cmd_types)) // Encode cmd_types array
+            )
+        );
 
-        for (uint i = 0; i < signatures.length; i++) {
-            signers[i] = recoverSigner(message, signatures[i]);
+        bytes32 hash = keccak256(
+            abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash)
+        );
+
+        address[] memory signers = new address[](op.signatures.length);
+        for (uint i = 0; i < op.signatures.length; i++) {
+            (uint8 v, bytes32 r, bytes32 s) = splitSignature(op.signatures[i]);
+            signers[i] = ecrecover(hash, v, r, s);
         }
 
         return signers;

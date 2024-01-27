@@ -14,12 +14,12 @@ function getRandomBytes32() {
   return '0x' + randomBytes(32).toString('hex');
 }
 
-async function createTransferOperation(sender, commands, opId, deadlineOffset = 1000) {
+async function createTransferOperation(processorContract, sender,  commands, opId, deadlineOffset = 1000) {
   const deadline = BigInt(Math.floor(Date.now() / 1000) + deadlineOffset);
   const cmdTypes = commands.map(() => 1); 
 
   // Sign the message with the sender's private key
-  const signature = await createSignature(sender, deadline, opId, commands, cmdTypes);
+  const signature = await createSignature(processorContract.target, sender, deadline, opId, commands, cmdTypes);
   
   return {
     deadline: deadline,
@@ -27,17 +27,78 @@ async function createTransferOperation(sender, commands, opId, deadlineOffset = 
     portal: sender.address,
     commands: commands,
     cmd_types: commands.map(() => 1), // Assuming 1 is the type for a simple transfer
-    signatures: [signature] // Mocked or calculated signatures
+    signatures: [signature] // Mocked or calculated signatures,
   };
 } 
 
-async function createSignature(sender, deadline, opId, commands, cmdTypes ){
-  const packedData = encodeDataForSignature(deadline, opId, sender.address, commands, cmdTypes);
-  const dataHash = ethers.keccak256(packedData);
+async function createSignature(processorAddress, sender, deadline, opId, commands, cmdTypes) {
+  // Define the EIP-712 domain
+  const domain = {
+      name: 'Processor Contract',
+      version: '1',
+      chainId: (await ethers.provider.getNetwork()).chainId,
+      verifyingContract: processorAddress // Replace with your Processor contract's address
+  };
 
-  const signature = await sender.signMessage(dataHash);
-  return signature;
+  // Define the EIP-712 types
+  const types = {
+      Operation: [
+          { name: "deadline", type: "uint256" },
+          { name: "op_id", type: "uint256" },
+          { name: "portal", type: "address" },
+          { name: "commands", type: "AssetTransfer[]" },
+          { name: "cmd_types", type: "uint256[]" }
+      ],
+      AssetTransfer: [
+          { name: "amount", type: "uint256" },
+          { name: "from", type: "address" },
+          { name: "to", type: "address" }
+      ]
+  };
+
+  // Define the values for the types
+  const value = {
+      deadline: deadline.toString(),
+      op_id: opId.toString(),
+      portal: sender.address,
+      commands: commands,
+      cmd_types: cmdTypes.map((type) => type.toString())
+  };
+
+  // Sign the typed data
+  return await sender.signTypedData(domain, types, value);
 }
+
+
+async function createPermitSignature(signer, tokenContract, owner, spender, value, deadline) {
+  const domain = {
+      name: await tokenContract.name(),
+      version: "1",
+      chainId: (await ethers.provider.getNetwork()).chainId,
+      verifyingContract: tokenContract.target,
+  };
+
+  const types = {
+      Permit: [
+          { name: "owner", type: "address" },
+          { name: "spender", type: "address" },
+          { name: "value", type: "uint256" },
+          { name: "nonce", type: "uint256" },
+          { name: "deadline", type: "uint256" },
+      ],
+  };
+
+  const values = {
+      owner,
+      spender,
+      value,
+      nonce: await tokenContract.nonces(owner),
+      deadline,
+  };
+
+  return await signer.signTypedData(domain, types, values);
+}
+
 
 function createTransferCommand(from, to, amount) {
   return {
@@ -118,7 +179,7 @@ describe("Processor Contract", function () {
     it("Should transfer USDT tokens using the process method", async function () {
       const transferAmount = 100;
       const command = createTransferCommand(addr1.address, addr2.address, transferAmount);
-      const operation = await createTransferOperation(addr1, [command], 1);
+      const operation = await createTransferOperation(processor, addr1, [command], 1);
     
       await processor.process([operation]);
     
@@ -135,7 +196,7 @@ describe("Processor Contract", function () {
       const command1 = createTransferCommand(addr1.address, addr2.address, transferAmount1);
       const command2 = createTransferCommand(addr2.address, addr1.address, transferAmount2);
     
-      const operation = await createTransferOperation(addr1, [command1, command2], 2);
+      const operation = await createTransferOperation(processor, addr1, [command1, command2], 2);
     
       await processor.process([operation]);
       // Assertions
@@ -147,7 +208,7 @@ describe("Processor Contract", function () {
     it("Should fail for nonce reuse", async function () {
       const transferAmount = 100;
       const command = createTransferCommand(addr1.address, addr2.address, transferAmount);
-      const operation = await createTransferOperation(addr1, [command], 3);
+      const operation = await createTransferOperation(processor, addr1, [command], 3);
   
       await processor.process([operation]);
     
@@ -161,7 +222,7 @@ describe("Processor Contract", function () {
   
       // Create TransferData and AssetTransfer structures
       const cmd = createTransferCommand(addr1.address, addr2.address, 0);
-      const op = await createTransferOperation(addr1, [cmd], 34, 1000);
+      const op = await createTransferOperation(processor, addr1, [cmd], 34, 1000);
 
       await expect(processor.process([op]))
           .to.be.revertedWith("Empty transfer."); // Replace with your actual error message
@@ -170,7 +231,7 @@ describe("Processor Contract", function () {
     it("Should fail if the sender has insufficient balance", async function () {
       const transferAmount = 100000; // An amount greater than the sender's balance
       const command = createTransferCommand(addr1.address, addr2.address, transferAmount);
-      const operation = await createTransferOperation(addr1, [command], 4);
+      const operation = await createTransferOperation(processor, addr1, [command], 4);
     
       await expect(processor.process([operation]))
         .to.be.revertedWith("Not enough funds."); // Replace with the actual error message
@@ -181,7 +242,7 @@ describe("Processor Contract", function () {
       const transferAmount = 100;
       const command = createTransferCommand(addr1.address, addr2.address, transferAmount);
       // Create an operation with a past deadline
-      const operation = await createTransferOperation(addr1, [command], 6, -1000); 
+      const operation = await createTransferOperation(processor, addr1, [command], 6, -1000); 
     
       await expect(processor.process([operation]))
         .to.be.revertedWith("Deadline passed"); // Replace with the actual error message
@@ -191,12 +252,41 @@ describe("Processor Contract", function () {
     it("Should fail if the signature is invalid", async function () {
       const transferAmount = 100;
       const command = createTransferCommand(addr1.address, addr2.address, transferAmount);
-      const operation = await createTransferOperation(addr1, [command], 7);
+      const operation = await createTransferOperation(processor, addr1, [command], 7);
       operation.signatures = [getRandomBytes32()]; // Replace with an invalid signature
     
       await expect(processor.process([operation]))
         .to.be.revertedWith("Invalid signature"); // Replace with the actual error message
     });
+
+    it("Should deposit tokens using the permit method", async function () {
+      const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
+      const value = 5;
+      // Create the permit signature
+      const signature = await createPermitSignature(addr1, usdt, addr1.address, processor.target, value, deadline);
+
+      // Create TransferData for DEPOSIT
+      const transferData = {
+          deadline: deadline,
+          op_id: 3242,
+          portal: addr1.address,
+          commands: [
+            {
+              from: addr1.address,
+              to: addr2.address,
+              amount: value
+            }
+          ],
+          cmd_types: [2], // DEPOSIT
+          signatures: [signature], // Include the permit signature
+      };
+
+      // Call process
+      const receipt = await processor.process([transferData]);
+
+      // Assertions
+      // Check that tokens have been transferred and minted correctly
+  });
     
     
   
