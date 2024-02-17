@@ -8,10 +8,11 @@ function getRandomBytes32() {
     return '0x' + randomBytes(32).toString('hex');
 }
 
-class ProcessorSDK {
-    constructor(processorContract, provider) {
+class CilaSDK {
+    constructor(processorAddress, provider) {
         this.provider = provider || ethers.getDefaultProvider();
         this.processorContract = new ethers.Contract(processorAddress, ProcessorAbi, this.provider);
+        this.initialize();
     }
 
     async initialize() {
@@ -95,7 +96,9 @@ class ProcessorSDK {
     }
 
     async sendOperations(operations) {
-        return this.processorContract.process(operations);
+        const signer = this.provider.getSigner();
+        const processorWithSigner = this.processorContract.connect(signer);
+        return processorWithSigner.process(operations);
     }
 
     async sendSingleOperation(operation) {
@@ -103,4 +106,4 @@ class ProcessorSDK {
     }
 }
 
-module.exports = ProcessorSDK;
+module.exports = CilaSDK;

@@ -101,7 +101,7 @@ describe("Processor Contract", function () {
     // Compute the hash
     return ethers.keccak256(encodedData);
   }
-  
+
   
   function generateOpIandHash(commands, deadlineMin)
   {
@@ -149,6 +149,7 @@ describe("Processor Contract", function () {
     it("Should transfer USDT tokens using the process method", async function () {
       const command = createTransferCommand(addr1.address, addr2.address, 100);
       const operation = await createTransferOperation(addr1, [command]);
+      console.log(operation);
       await processor.process([operation]);
       const calldata = processor.interface.encodeFunctionData("process", [[operation]]);
 

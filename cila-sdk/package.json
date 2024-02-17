@@ -1,0 +1,19 @@
+{
+  "name": "cila-sdk",
+  "version": "1.0.0",
+  "description": "CILA Omnichain SDK",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "test"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "chai": "^5.0.3",
+    "ethers": "^6.10.0",
+    "mocha": "^10.2.0"
+  }
+}
