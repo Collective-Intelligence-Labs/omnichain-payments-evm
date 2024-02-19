@@ -145,19 +145,13 @@ describe("Processor Contract", function () {
   describe("Transactions", function () {
     // Write tests for your transactions
 
-
     it("Should transfer USDT tokens using the process method", async function () {
       const command = createTransferCommand(addr1.address, addr2.address, 100);
       const operation = await createTransferOperation(addr1, [command]);
-      console.log(operation);
       await processor.process([operation]);
       const calldata = processor.interface.encodeFunctionData("process", [[operation]]);
-
-    // Calldata is now ready and can be saved or used as needed
-    console.log("Calldata:", calldata);
       expect(await usdt.balanceOf(addr2.address)).to.equal(100);
     });
-    
 
     it("Should handle multiple commands in a single operation", async function () {
       // Arrange: Setup for multiple commands
