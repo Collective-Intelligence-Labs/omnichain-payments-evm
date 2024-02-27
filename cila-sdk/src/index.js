@@ -1,7 +1,6 @@
 const { randomBytes } = require('crypto');
 const { ethers } = require("ethers");
-const ProcessorAbi = require("../artifacts/contracts/Processor.sol/Processor.json").abi;
-const USDTAbi = require("../artifacts/contracts/USDTToken.sol/USDTToken.json").abi; // Adjust the path as necessary
+const { axios } = require("axios");
 
 // Generates a valid random bytes32 value
 function getRandomBytes32() {
@@ -9,22 +8,29 @@ function getRandomBytes32() {
 }
 
 class CilaSDK {
-    constructor(processorAddress, provider) {
+
+    routerApi = null;
+    processorContractAddress = null;
+
+    domain = null;
+
+    constructor(routerApi, provider = null) {
         this.provider = provider || ethers.getDefaultProvider();
-        this.processorContract = new ethers.Contract(processorAddress, ProcessorAbi, this.provider);
+        this.routerApi = routerApi;
         this.initialize();
     }
 
     async initialize() {
-        const usdtAddress = await this.processorContract.targetToken();
-        this.usdtContract = new ethers.Contract(usdtAddress, USDTAbi, this.provider);
+      
+        let settings = await axios.get(this.routerApi + "/settings");
 
+        this.processorContractAddress = settings.processorContractAddress;
         // Fetch and store contract details
         this.domain = {
-            name: await this.usdtContract.name(),
-            version: "1",
-            chainId: (await this.provider.getNetwork()).chainId,
-            verifyingContract: usdtAddress,
+            name: settings.targetContractDomain.name,
+            version: settings.targetContractDomain.version,
+            chainId: settings.targetContractDomain.chainId,
+            verifyingContract: settings.targetContractDomain.verifyingContract,
         };
     }
 
@@ -37,7 +43,7 @@ class CilaSDK {
         const totalValue = commands.reduce((sum, cmd) => sum + cmd.amount, 0);
 
         // Sign the message with the sender's private key
-        const signature = await this.createPermitSignature(sender, sender.address, this.processorContract.target, totalValue, opHash);
+        const signature = await this.createPermitSignature(sender, sender.address, this.processorContractAddress, totalValue, opHash);
         return {
             deadline: deadline,
             op_id: opId,
@@ -47,7 +53,7 @@ class CilaSDK {
     }
 
     async createPermitSignature(signer, owner, spender, value, deadline) {
-        const nonce = await this.usdtContract.nonces(owner);
+        const nonce = await axios.get(this.routerApi + "/nonce/" + owner);
 
         const types = {
             Permit: [
@@ -96,13 +102,12 @@ class CilaSDK {
     }
 
     async sendOperations(operations) {
-        const signer = this.provider.getSigner();
-        const processorWithSigner = this.processorContract.connect(signer);
-        return processorWithSigner.process(operations);
+        return await axios.post(this.routerApi + "/send-operations", operations);
     }
 
-    async sendSingleOperation(operation) {
-        return this.sendOperations([operation]);
+
+    async readBalance(address) {
+        return await axios.get(this.routerApi + "/balance/" + address)
     }
 }
 
