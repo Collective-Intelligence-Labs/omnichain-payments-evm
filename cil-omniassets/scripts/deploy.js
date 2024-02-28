@@ -7,16 +7,17 @@
 const hre = require("hardhat");
 
 async function main() {
-  const targetTokenAddress = "0xc4bF5CbDaBE595361438F8c6a187bDc330539c60";
-  const initialSupply = 0;
+  const initialSupply = 9999999999999;
 
-  const OwnableERC20Token = await hre.ethers.getContractFactory("OwnableERC20Token");
-  const internalToken = await OwnableERC20Token.deploy(initialSupply);
+  const token = await hre.ethers.getContractFactory("USDTToken");
+  const internalToken = await token.deploy();
   await internalToken.waitForDeployment();
+  const owner = await internalToken.owner();
 
   const Processor = await hre.ethers.getContractFactory("Processor");
-  const processor = await Processor.deploy(targetTokenAddress, internalToken.address);
+  const processor = await Processor.deploy(internalToken.address);
   await processor.waitForDeployment();
+
 
   console.log(`OwnableERC20Token deployed to: ${internalToken.address}`);
   console.log(`Processor deployed to: ${processor.address}`);

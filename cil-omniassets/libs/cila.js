@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { ethers } from 'ethers';
+import { ethers } from 'hardhat';
 import axios from 'axios';
 import BigInt from 'big-integer';
 

@@ -14,27 +14,27 @@ mongoose.connect('mongodb://localhost:27017/omniassets', { useNewUrlParser: true
     .then(() => console.log('MongoDB connected'))
     .catch(err => console.error('MongoDB connection error:', err));
 
-app.post('/submit-transfer', async (req, res) => {
-    const { cmds } = req.body;
-    if (!cmds || !Array.isArray(cmds) || cmds.length === 0) {
-        return res.status(400).send('Invalid or missing cmds array');
-    }
+app.post("/route/operations", async (req, res) => {
+  const { ops } = req.body;
+  if (!ops || !Array.isArray(ops) || ops.length === 0) {
+      return res.status(400).send('Invalid or missing cmds array');
+  }
 
-    try {
-        // Utilize bulk operation for efficiency
-        const bulkOps = cmds.map(cmd => ({
-            insertOne: {
-                document: { encodedData: cmd }
-            }
-        }));
+  try {
+      // Utilize bulk operation for efficiency
+      const bulkOps = ops.map(op => ({
+          insertOne: {
+              document: op
+          }
+      }));
 
-        await TransferData.bulkWrite(bulkOps);
-        res.status(200).send('Transfer data saved');
-    } catch (error) {
-        console.error('Error saving transfer data:', error);
-        res.status(500).send('Internal Server Error');
-    }
-});
+      await TransferData.bulkWrite(bulkOps);
+      res.status(200).send('Transfer data saved');
+  } catch (error) {
+      console.error('Error saving transfer data:', error);
+      res.status(500).send('Internal Server Error');
+  }
+} )
 
 app.get("/balance/:address", async (req, res) => {
   const { address } = req.params;

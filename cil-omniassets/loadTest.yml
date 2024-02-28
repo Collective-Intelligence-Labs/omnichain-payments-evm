@@ -1,0 +1,11 @@
+config:
+  target: 'http://localhost:3000'
+  phases:
+    - duration: 60 # Test duration in seconds
+      arrivalRate: 5 # Number of new virtual users per second
+  processor: "./test/LoadTests.js" # The path to your custom JavaScript file
+
+scenarios:
+  - name: "Blockchain Operation Load Test"
+    flow:
+      - function: "createAndSendOperation"
