@@ -37,6 +37,7 @@ class ProcessorSDK {
         return {
             deadline: deadline,
             op_id: opId,
+            from: sender.address,
             commands: commands,
             signature: signature
         };
@@ -66,18 +67,17 @@ class ProcessorSDK {
         return await signer.signTypedData(this.domain, types, values);
     }
 
-    createTransferCommand(from, to, amount) {
+    createTransferCommand(to, amount) {
         return {
-            amount: amount,
-            from,
-            to
+            to,
+            amount
         };
     }
 
     calculateOperationHash(commands, opId) {
         const coder = new ethers.AbiCoder();
-        const formattedCommands = commands.map(cmd => [cmd.amount, cmd.from, cmd.to]);
-        const encodedData = coder.encode(["uint256", "tuple(uint256, address, address)[]"], [opId, formattedCommands]);
+        const formattedCommands = commands.map(cmd => [cmd.to, cmd.amount]);
+        const encodedData = coder.encode(["uint256", "tuple(address, uint256)[]"], [opId, formattedCommands]);
         return ethers.keccak256(encodedData);
     }
 

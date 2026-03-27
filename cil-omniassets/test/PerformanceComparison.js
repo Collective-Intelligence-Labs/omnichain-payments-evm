@@ -19,19 +19,18 @@ describe("Performance: Omnichain Batch Transfer vs Regular Transfer", function (
   let sender;
   let addrs;
 
-  function createTransferCommand(from, to, amount) {
-    return { amount, from, to };
+  function createTransferCommand(to, amount) {
+    return { to, amount };
   }
 
   function calculateOperationHash(commands, opId) {
     const coder = new ethers.AbiCoder();
     const formattedCommands = commands.map((cmd) => [
-      BigInt(cmd.amount),
-      cmd.from,
       cmd.to,
+      BigInt(cmd.amount),
     ]);
     const encodedData = coder.encode(
-      ["uint256", "tuple(uint256, address, address)[]"],
+      ["uint256", "tuple(address, uint256)[]"],
       [opId, formattedCommands]
     );
     return ethers.keccak256(encodedData);
@@ -87,7 +86,7 @@ describe("Performance: Omnichain Batch Transfer vs Regular Transfer", function (
       totalValue,
       opHash
     );
-    return { deadline, op_id: opId, commands, signature };
+    return { deadline, op_id: opId, from: senderSigner.address, commands, signature };
   }
 
   function formatGas(gasUsed) {
@@ -160,7 +159,7 @@ describe("Performance: Omnichain Batch Transfer vs Regular Transfer", function (
         const totalAmount = TRANSFER_AMOUNT * BigInt(count);
 
         const omnichainCommands = recipientAddrs.map((r) =>
-          createTransferCommand(sender.address, r.address, TRANSFER_AMOUNT)
+          createTransferCommand(r.address, TRANSFER_AMOUNT)
         );
         const omnichainOperation = await createTransferOperation(
           sender,

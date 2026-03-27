@@ -5,11 +5,11 @@ export const PROCESSOR_ABI = [
         components: [
           { internalType: 'uint256', name: 'deadline', type: 'uint256' },
           { internalType: 'uint256', name: 'op_id', type: 'uint256' },
+          { internalType: 'address', name: 'from', type: 'address' },
           {
             components: [
-              { internalType: 'uint256', name: 'amount', type: 'uint256' },
-              { internalType: 'address', name: 'from', type: 'address' },
               { internalType: 'address', name: 'to', type: 'address' },
+              { internalType: 'uint256', name: 'amount', type: 'uint256' },
             ],
             internalType: 'struct Processor.AssetTransfer[]',
             name: 'commands',
@@ -31,9 +31,8 @@ export const PROCESSOR_ABI = [
     inputs: [
       {
         components: [
-          { internalType: 'uint256', name: 'amount', type: 'uint256' },
-          { internalType: 'address', name: 'from', type: 'address' },
           { internalType: 'address', name: 'to', type: 'address' },
+          { internalType: 'uint256', name: 'amount', type: 'uint256' },
         ],
         internalType: 'struct Processor.AssetTransfer[]',
         name: 'commands',

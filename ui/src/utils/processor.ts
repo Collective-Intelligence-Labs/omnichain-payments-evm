@@ -9,9 +9,9 @@ function getRandomBytes32(): bigint {
 }
 
 export function calculateOperationHash(commands: AssetTransfer[], opId: bigint): string {
-  const formattedCommands = commands.map(cmd => [cmd.amount, cmd.from, cmd.to]);
+  const formattedCommands = commands.map(cmd => [cmd.to, cmd.amount]);
   const encodedData = coder.encode(
-    ['uint256', 'tuple(uint256, address, address)[]'],
+    ['uint256', 'tuple(address, uint256)[]'],
     [opId, formattedCommands]
   );
   return keccak256(encodedData);
@@ -74,6 +74,7 @@ export async function buildAndSendOperation(
   signer: any,
   processorAddress: string,
   tokenAddress: string,
+  from: string,
   commands: AssetTransfer[]
 ): Promise<{ txHash: string; opId: bigint }> {
   const provider = signer.provider;
@@ -89,7 +90,7 @@ export async function buildAndSendOperation(
 
   const signature = await createPermitSignature(
     signer,
-    commands[0].from,
+    from,
     await processorContract.getAddress(),
     totalValue,
     opHash,
@@ -99,6 +100,7 @@ export async function buildAndSendOperation(
   const operation: Operation = {
     deadline,
     op_id: opId,
+    from,
     commands,
     signature,
   };

@@ -77,12 +77,11 @@ const BatchTransfer: React.FC<BatchTransferProps> = ({
     try {
       const signer = await provider.getSigner();
       const commands = validTransfers.map(t => ({
-        amount: parseUnits(t.amount, tokenDecimals),
-        from: address,
         to: t.to,
+        amount: parseUnits(t.amount, tokenDecimals),
       }));
 
-      const result = await buildAndSendOperation(signer, processorAddress, tokenAddress, commands);
+      const result = await buildAndSendOperation(signer, processorAddress, tokenAddress, address, commands);
 
       setSuccessTx(result.txHash);
       onTxSubmit({

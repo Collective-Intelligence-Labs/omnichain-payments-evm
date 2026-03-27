@@ -1,12 +1,12 @@
 export interface AssetTransfer {
-  amount: bigint;
-  from: string;
   to: string;
+  amount: bigint;
 }
 
 export interface Operation {
   deadline: number;
   op_id: bigint;
+  from: string;
   commands: AssetTransfer[];
   signature: string;
 }
