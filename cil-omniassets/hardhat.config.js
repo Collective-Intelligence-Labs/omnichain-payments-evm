@@ -22,4 +22,7 @@ module.exports = {
   solidity: "0.8.20",
   defaultNetwork: "hardhat",
   networks,
+  gasReporter: {
+    enabled: true,
+  },
 };
