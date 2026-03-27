@@ -41,10 +41,9 @@ jobs:
 
       - name: Prepare Pages artifact
         run: |
-          mkdir -p ../pages/ui
-          cp -r dist/* ../pages/ui/
-          cp dist/index.html dist/404.html
-          cp dist/404.html ../pages/ui/
+          mkdir -p ../pages
+          cp -r dist/* ../pages/
+          cp ../pages/index.html ../pages/404.html
 
       - name: Setup Pages
         uses: actions/configure-pages@v4
