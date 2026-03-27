@@ -1,42 +1,38 @@
 const { randomBytes } = require('crypto');
 const { ethers } = require("ethers");
 const ProcessorAbi = require("../artifacts/contracts/Processor.sol/Processor.json").abi;
-const USDTAbi = require("../artifacts/contracts/USDTToken.sol/USDTToken.json").abi; // Adjust the path as necessary
 
-// Generates a valid random bytes32 value
 function getRandomBytes32() {
     return '0x' + randomBytes(32).toString('hex');
 }
 
 class ProcessorSDK {
-    constructor(processorAddress, provider) {
+    constructor(processorAddress, provider, tokenAbi) {
         this.provider = provider || ethers.getDefaultProvider();
         this.processorContract = new ethers.Contract(processorAddress, ProcessorAbi, this.provider);
+        this.tokenAbi = tokenAbi;
         this.initialize();
     }
 
     async initialize() {
-        const usdtAddress = await this.processorContract.targetToken();
-        this.usdtContract = new ethers.Contract(usdtAddress, USDTAbi, this.provider);
+        const tokenAddress = await this.processorContract.targetToken();
+        this.tokenContract = new ethers.Contract(tokenAddress, this.tokenAbi, this.provider);
 
-        // Fetch and store contract details
         this.domain = {
-            name: await this.usdtContract.name(),
+            name: await this.tokenContract.name(),
             version: "1",
             chainId: (await this.provider.getNetwork()).chainId,
-            verifyingContract: usdtAddress,
+            verifyingContract: tokenAddress,
         };
     }
 
     async createTransferOperation(sender, commands, deadlineOffset = 3600) {
-        const deadline = Math.floor(Date.now() / 1000) + deadlineOffset; // 1 hour from now
+        const deadline = Math.floor(Date.now() / 1000) + deadlineOffset;
 
         const { opId, opHash } = this.generateOpIdAndHash(commands, deadline);
 
-        // Calculate the total value to be permitted
-        const totalValue = commands.reduce((sum, cmd) => sum + cmd.amount, 0);
+        const totalValue = commands.reduce((sum, cmd) => sum + cmd.amount, 0n);
 
-        // Sign the message with the sender's private key
         const signature = await this.createPermitSignature(sender, sender.address, this.processorContract.target, totalValue, opHash);
         return {
             deadline: deadline,
@@ -47,7 +43,7 @@ class ProcessorSDK {
     }
 
     async createPermitSignature(signer, owner, spender, value, deadline) {
-        const nonce = await this.usdtContract.nonces(owner);
+        const nonce = await this.tokenContract.nonces(owner);
 
         const types = {
             Permit: [
