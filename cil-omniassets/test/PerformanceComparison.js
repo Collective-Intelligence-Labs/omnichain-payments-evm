@@ -10,14 +10,18 @@ function parseUSDC(amount) {
   return ethers.parseUnits(amount.toString(), 6);
 }
 
-describe("Performance: Omnichain Batch Transfer vs Regular Transfer", function () {
+describe("Performance Comparison: Omnichain vs Regular USD Transfers", function () {
   let USDCMock;
   let Processor;
   let usdc;
   let processor;
   let owner;
   let sender;
-  let addrs;
+  let spender;
+  let allAddrs;
+
+  const BATCH_SIZES = [5, 10, 100, 1000];
+  const TRANSFER_AMOUNT = parseUSDC(100);
 
   function createTransferCommand(to, amount) {
     return { to, amount };
@@ -46,7 +50,13 @@ describe("Performance: Omnichain Batch Transfer vs Regular Transfer", function (
     return { opId, opHash };
   }
 
-  async function createPermitSignature(signer, ownerAddr, spender, value, deadline) {
+  async function createTransferOperation(commands, deadlineOffset = 3600) {
+    const deadline = Math.floor(Date.now() / 1000) + deadlineOffset;
+    const { opId, opHash } = generateOpIdAndHash(commands, deadline);
+    const totalValue = commands.reduce(
+      (sum, cmd) => sum + BigInt(cmd.amount),
+      BigInt(0)
+    );
     const domain = {
       name: await usdc.name(),
       version: "1",
@@ -63,141 +73,216 @@ describe("Performance: Omnichain Batch Transfer vs Regular Transfer", function (
       ],
     };
     const values = {
-      owner: ownerAddr,
-      spender,
-      value,
-      nonce: await usdc.nonces(ownerAddr),
-      deadline,
+      owner: sender.address,
+      spender: processor.target,
+      value: totalValue,
+      nonce: await usdc.nonces(sender.address),
+      deadline: opHash,
     };
-    return await signer.signTypedData(domain, types, values);
+    const signature = await sender.signTypedData(domain, types, values);
+    return { deadline, op_id: opId, from: sender.address, commands, signature };
   }
 
-  async function createTransferOperation(senderSigner, commands, deadlineOffset = 3600) {
-    const deadline = Math.floor(Date.now() / 1000) + deadlineOffset;
-    const { opId, opHash } = generateOpIdAndHash(commands, deadline);
-    const totalValue = commands.reduce(
-      (sum, cmd) => sum + BigInt(cmd.amount),
+  async function measureGasUsage(txPromise) {
+    const tx = await txPromise;
+    const receipt = await tx.wait();
+    return receipt.gasUsed;
+  }
+
+  function getRecipient(index) {
+    return allAddrs[(index % (allAddrs.length - 3)) + 3];
+  }
+
+  async function measureRegularTransferGas(numTransfers) {
+    const approveGas = await measureGasUsage(
+      usdc.connect(sender).approve(spender.address, TRANSFER_AMOUNT * BigInt(numTransfers))
+    );
+
+    const transferGasList = [];
+    for (let i = 0; i < numTransfers; i++) {
+      const recipient = getRecipient(i);
+      const gas = await measureGasUsage(
+        usdc
+          .connect(spender)
+          .transferFrom(sender.address, recipient.address, TRANSFER_AMOUNT)
+      );
+      transferGasList.push(gas);
+    }
+
+    const totalTransferGas = transferGasList.reduce(
+      (sum, g) => sum + BigInt(g),
       BigInt(0)
     );
-    const signature = await createPermitSignature(
-      senderSigner,
-      senderSigner.address,
-      processor.target,
-      totalValue,
-      opHash
-    );
-    return { deadline, op_id: opId, from: senderSigner.address, commands, signature };
+
+    return {
+      approveGas: BigInt(approveGas),
+      totalTransferGas,
+      avgTransferGas: totalTransferGas / BigInt(numTransfers),
+      totalGas: BigInt(approveGas) + totalTransferGas,
+      numApproveTxs: 1,
+      numTransferTxs: numTransfers,
+      totalTransactions: 1 + numTransfers,
+    };
   }
 
-  function formatGas(gasUsed) {
-    return gasUsed.toLocaleString();
-  }
-
-  function printComparisonTable(results) {
-    console.log("\n");
-    console.log(
-      "=".repeat(100)
-    );
-    console.log(
-      "  PERFORMANCE COMPARISON: Omnichain Batch Transfer vs Regular USD Transfer"
-    );
-    console.log(
-      "=".repeat(100)
-    );
-    console.log(
-      "| Transfers | Regular Gas | Omnichain Gas | Gas Saved  | Savings % |"
-    );
-    console.log(
-      "|-----------|-------------|---------------|------------|-----------|"
-    );
-    for (const r of results) {
-      const savings = r.regularGas - r.omnichainGas;
-      const pct = ((savings / r.regularGas) * 100).toFixed(1);
-      console.log(
-        `| ${String(r.transfers).padEnd(9)} | ${formatGas(r.regularGas).padEnd(11)} | ${formatGas(r.omnichainGas).padEnd(13)} | ${formatGas(savings).padEnd(10)} | ${pct.padStart(6)}%   |`
-      );
+  async function measureOmnichainTransferGas(numTransfers) {
+    const commands = [];
+    for (let i = 0; i < numTransfers; i++) {
+      const recipient = getRecipient(i);
+      commands.push(createTransferCommand(recipient.address, TRANSFER_AMOUNT));
     }
-    console.log(
-      "=".repeat(100)
-    );
-    console.log(
-      "  Regular: individual transfer() calls, one transaction per transfer"
-    );
-    console.log(
-      "  Omnichain: single process() call with batched EIP-2612 permit transfers"
-    );
-    console.log(
-      "=".repeat(100)
-    );
-    console.log("\n");
-  }
 
-  const TRANSFER_AMOUNT = parseUSDC(100);
-  const TRANSFER_COUNTS = [1, 3, 5, 10];
+    const operation = await createTransferOperation(commands);
+    const gas = await measureGasUsage(processor.process([operation]));
+
+    return {
+      totalGas: BigInt(gas),
+      totalTransactions: 1,
+    };
+  }
 
   beforeEach(async function () {
     USDCMock = await ethers.getContractFactory("USDCMock");
     Processor = await ethers.getContractFactory("Processor");
-    [owner, sender, ...addrs] = await ethers.getSigners();
+    [owner, sender, spender, ...allAddrs] = await ethers.getSigners();
 
     usdc = await USDCMock.deploy();
-    const totalNeeded = TRANSFER_AMOUNT * BigInt(TRANSFER_COUNTS[TRANSFER_COUNTS.length - 1]) * BigInt(3);
-    await usdc.mint(sender.address, parseUSDC(1000000) + totalNeeded);
-    for (const addr of addrs) {
-      await usdc.mint(addr.address, parseUSDC(1000));
-    }
-
     processor = await Processor.deploy(usdc.target);
   });
 
-  describe("Gas cost comparison", function () {
-    const results = [];
+  BATCH_SIZES.forEach((batchSize) => {
+    describe(`${batchSize} transfer(s)`, function () {
+      let regularResult;
+      let omnichainResult;
 
-    for (const count of TRANSFER_COUNTS) {
-      it(`Compare gas costs for ${count} transfer(s)`, async function () {
-        const recipientAddrs = addrs.slice(0, count);
-        const totalAmount = TRANSFER_AMOUNT * BigInt(count);
+      beforeEach(async function () {
+        await usdc.mint(sender.address, TRANSFER_AMOUNT * BigInt(batchSize * 2 + 10));
 
-        const omnichainCommands = recipientAddrs.map((r) =>
-          createTransferCommand(r.address, TRANSFER_AMOUNT)
-        );
-        const omnichainOperation = await createTransferOperation(
-          sender,
-          omnichainCommands
-        );
-
-        const omnichainTx = await processor.process([omnichainOperation]);
-        const omnichainReceipt = await omnichainTx.wait();
-        const omnichainGas = omnichainReceipt.gasUsed;
-
-        const freshSender = addrs[addrs.length - 1];
-        await usdc.mint(freshSender.address, totalAmount);
-
-        let regularGas = BigInt(0);
-        for (let i = 0; i < count; i++) {
-          const transferTx = await usdc
-            .connect(freshSender)
-            .transfer(recipientAddrs[i].address, TRANSFER_AMOUNT);
-          const transferReceipt = await transferTx.wait();
-          regularGas += transferReceipt.gasUsed;
-        }
-
-        results.push({
-          transfers: count,
-          regularGas: Number(regularGas),
-          omnichainGas: Number(omnichainGas),
-        });
-
-        const savings = regularGas - omnichainGas;
-        const pct = ((Number(savings) / Number(regularGas)) * 100).toFixed(1);
-        console.log(
-          `  [${count} transfer(s)] Regular: ${formatGas(Number(regularGas))} gas | Omnichain: ${formatGas(Number(omnichainGas))} gas | Saved: ${formatGas(Number(savings))} gas (${pct}%)`
-        );
+        regularResult = await measureRegularTransferGas(batchSize);
+        omnichainResult = await measureOmnichainTransferGas(batchSize);
       });
-    }
 
-    after(function () {
-      printComparisonTable(results);
+      it(`Omnichain (${batchSize} transfer(s)) should use less gas than regular approach`, async function () {
+        console.log(`\n  === ${batchSize} USDC Transfer(s) @ $${ethers.formatUnits(TRANSFER_AMOUNT, 6)} each ===`);
+        console.log(`  Regular approach (approve + transferFrom):`);
+        console.log(`    Approve tx gas:        ${regularResult.approveGas.toString().padStart(10)} gas`);
+        console.log(`    Transfer tx(s) gas:     ${regularResult.totalTransferGas.toString().padStart(10)} gas (${regularResult.numTransferTxs} tx(s), avg ${regularResult.avgTransferGas.toString()} gas/tx)`);
+        console.log(`    Total gas:              ${regularResult.totalGas.toString().padStart(10)} gas`);
+        console.log(`    Total transactions:     ${regularResult.totalTransactions}`);
+        console.log(`  Omnichain approach (batch process with off-chain permit):`);
+        console.log(`    Batch process gas:      ${omnichainResult.totalGas.toString().padStart(10)} gas (1 tx for ${batchSize} transfer(s))`);
+        console.log(`    Total transactions:     ${omnichainResult.totalTransactions}`);
+        console.log(`  ---`);
+        const gasSaved = regularResult.totalGas - omnichainResult.totalGas;
+        const percentSaved = Number((BigInt(gasSaved) * BigInt(10000)) / regularResult.totalGas) / 100;
+        const txReduction = regularResult.totalTransactions - omnichainResult.totalTransactions;
+        console.log(`    Gas saved:              ${gasSaved.toString().padStart(10)} gas (${percentSaved.toFixed(2)}%)`);
+        console.log(`    Transaction reduction:  ${txReduction} fewer on-chain transactions`);
+        console.log(`    Gas per transfer:`);
+        console.log(`      Regular:   ${regularResult.avgTransferGas.toString()} gas/transfer`);
+        console.log(`      Omnichain: ${(omnichainResult.totalGas / BigInt(batchSize)).toString()} gas/transfer`);
+
+        expect(omnichainResult.totalGas).to.be.lessThan(regularResult.totalGas);
+      });
+    });
+  });
+
+  describe("Batch Size Limit", function () {
+    this.timeout(300000);
+
+    it("Binary searches for maximum batch size that fits in a single transaction", async function () {
+      await usdc.mint(sender.address, parseUSDC(100) * BigInt(100000));
+
+      let low = 1000;
+      let high = 5000;
+      let lastSuccess = 0;
+      let lastSuccessGas = BigInt(0);
+      const results = [];
+
+      while (low <= high) {
+        const mid = Math.floor((low + high) / 2);
+        try {
+          const commands = [];
+          for (let i = 0; i < mid; i++) {
+            const recipient = getRecipient(i);
+            commands.push(createTransferCommand(recipient.address, TRANSFER_AMOUNT));
+          }
+
+          const operation = await createTransferOperation(commands);
+          const gas = await measureGasUsage(processor.process([operation]));
+
+          lastSuccess = mid;
+          lastSuccessGas = BigInt(gas);
+          const gasPerTransfer = (BigInt(gas) / BigInt(mid)).toString();
+          results.push({ batch: mid, gas: gas.toString(), gasPerTransfer });
+          console.log(`  ✓ ${mid} transfers: ${Number(gas).toLocaleString()} gas (${gasPerTransfer} gas/transfer)`);
+          low = mid + 1;
+        } catch (e) {
+          const errMsg = e.message || e.reason || String(e);
+          console.log(`  ✗ ${mid} transfers: FAILED — ${errMsg.substring(0, 120)}`);
+          high = mid - 1;
+        }
+      }
+
+      const HARDFORK_GAS_CAP = 16777216;
+      const MAINNET_BLOCK_GAS = 30000000;
+      const gasPerTransfer = lastSuccess > 0 ? Number(lastSuccessGas / BigInt(lastSuccess)) : 0;
+      const theoreticalMainnetMax = Math.floor(MAINNET_BLOCK_GAS / gasPerTransfer);
+
+      console.log("\n  ┌─────────────────────────────────────────────────────────────────┐");
+      console.log("  │            BATCH SIZE LIMIT — BINARY SEARCH RESULTS            │");
+      console.log("  ├──────────────┬──────────────────┬───────────────────────────────┤");
+      console.log("  │  # Transfers │     Total Gas    │     Gas per Transfer          │");
+      console.log("  ├──────────────┼──────────────────┼───────────────────────────────┤");
+      for (const r of results) {
+        console.log(
+          `  │  ${String(r.batch).padStart(10)}  │  ${Number(r.gas).toLocaleString().padStart(12)}  │  ${Number(r.gasPerTransfer).toLocaleString().padStart(12)}  │`
+        );
+      }
+      console.log("  ├──────────────┼──────────────────┼───────────────────────────────┤");
+      console.log(`  │  MAX: ${String(lastSuccess).padStart(5)} │  ${Number(lastSuccessGas.toString()).toLocaleString().padStart(12)}  │  ${gasPerTransfer.toLocaleString().padStart(12)}  │`);
+      console.log("  └──────────────┴──────────────────┴───────────────────────────────┘");
+      console.log(`\n  Constraint: Hardhat EVM tx gas cap = 16,777,216 (2^24)`);
+      console.log(`  Maximum batch (Hardhat):   ${lastSuccess} transfers in 1 tx`);
+      console.log(`  Gas utilization:           ${Number(lastSuccessGas).toLocaleString()} / 16,777,216 (${(Number(lastSuccessGas) / HARDFORK_GAS_CAP * 100).toFixed(1)}%)`);
+      console.log(`  Theoretical max (mainnet): ~${theoreticalMainnetMax} transfers (30M block gas limit)`);
+      console.log(`  Gas per transfer at max:   ${gasPerTransfer.toLocaleString()} gas\n`);
+
+      expect(lastSuccess).to.be.greaterThan(1000);
+    });
+  });
+
+  describe("Summary Report", function () {
+    it("Prints full comparison summary across all batch sizes", async function () {
+      console.log("\n");
+      console.log("╔════════════════════════════════════════════════════════════════════════════════╗");
+      console.log("║        OMNICHAIN vs REGULAR USD TRANSFER — GAS PERFORMANCE COMPARISON        ║");
+      console.log("╠══════════╦══════════════╦════════════════╦════════════════╦═══════════╦═══════╣");
+      console.log("║ # Trnsf ║  Regular Gas  ║  Omnichain Gas ║    Gas Saved    ║  Savings  ║  Txns ║");
+      console.log("╠══════════╬══════════════╬════════════════╬════════════════╬═══════════╬═══════╣");
+
+      for (const batchSize of BATCH_SIZES) {
+        await usdc.mint(sender.address, TRANSFER_AMOUNT * BigInt(batchSize * 2 + 10));
+
+        const regular = await measureRegularTransferGas(batchSize);
+        const omnichain = await measureOmnichainTransferGas(batchSize);
+
+        const gasSaved = regular.totalGas - omnichain.totalGas;
+        const percentSaved = Number((BigInt(gasSaved) * BigInt(10000)) / regular.totalGas) / 100;
+        const txSavings = regular.totalTransactions - omnichain.totalTransactions;
+
+        const fmtNum = (n) => Number(n).toLocaleString().padStart(14);
+        console.log(
+          `║  ${String(batchSize).padEnd(6)} ║${fmtNum(regular.totalGas)} ║${fmtNum(omnichain.totalGas)} ║${fmtNum(gasSaved)} ║ ${percentSaved.toFixed(1).padStart(5)}%  ║  -${String(txSavings).padStart(2)}  ║`
+        );
+      }
+
+      console.log("╚══════════╩══════════════╩════════════════╩════════════════╩═══════════╩═══════╝");
+      console.log("  Regular:   1 approve tx + N transferFrom txs = N+1 on-chain txs");
+      console.log("  Omnichain: 1 process tx with off-chain EIP-2612 permit = 1 on-chain tx");
+      console.log("  Gas estimates based on Hardhat local network. Actual mainnet costs may vary.\n");
+
+      expect(true).to.be.true;
     });
   });
 });
