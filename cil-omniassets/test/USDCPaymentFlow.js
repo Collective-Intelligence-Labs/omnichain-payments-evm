@@ -26,15 +26,15 @@ describe("USDC Payment Flow", function () {
   let customer3;
   let addrs;
 
-  function createTransferCommand(from, to, amount) {
-    return { amount, from, to };
+  function createTransferCommand(to, amount) {
+    return { to, amount };
   }
 
   function calculateOperationHash(commands, opId) {
     const coder = new ethers.AbiCoder();
-    const formattedCommands = commands.map(cmd => [BigInt(cmd.amount), cmd.from, cmd.to]);
+    const formattedCommands = commands.map(cmd => [cmd.to, BigInt(cmd.amount)]);
     const encodedData = coder.encode(
-      ["uint256", "tuple(uint256, address, address)[]"],
+      ["uint256", "tuple(address, uint256)[]"],
       [opId, formattedCommands]
     );
     return ethers.keccak256(encodedData);
@@ -81,7 +81,7 @@ describe("USDC Payment Flow", function () {
     const { opId, opHash } = generateOpIdAndHash(commands, deadline);
     const totalValue = commands.reduce((sum, cmd) => sum + BigInt(cmd.amount), BigInt(0));
     const signature = await createPermitSignature(sender, sender.address, processor.target, totalValue, opHash);
-    return { deadline, op_id: opId, commands, signature };
+    return { deadline, op_id: opId, from: sender.address, commands, signature };
   }
 
   beforeEach(async function () {
@@ -123,7 +123,7 @@ describe("USDC Payment Flow", function () {
 
   describe("E2E Payment Flow: Customer pays Merchant", function () {
     it("Customer pays merchant $50 USDC for goods", async function () {
-      const command = createTransferCommand(customer1.address, merchant.address, parseUSDC(50));
+      const command = createTransferCommand(merchant.address, parseUSDC(50));
       const operation = await createTransferOperation(customer1, [command]);
 
       await expect(processor.process([operation]))
@@ -136,9 +136,9 @@ describe("USDC Payment Flow", function () {
 
     it("Customer pays merchant for multiple items in one batch", async function () {
       const commands = [
-        createTransferCommand(customer1.address, merchant.address, parseUSDC(25)),
-        createTransferCommand(customer1.address, merchant.address, parseUSDC(10)),
-        createTransferCommand(customer1.address, merchant.address, parseUSDC(5)),
+        createTransferCommand(merchant.address, parseUSDC(25)),
+        createTransferCommand(merchant.address, parseUSDC(10)),
+        createTransferCommand(merchant.address, parseUSDC(5)),
       ];
       const operation = await createTransferOperation(customer1, commands);
 
@@ -153,8 +153,8 @@ describe("USDC Payment Flow", function () {
     it("Customer splits payment to merchant and a service provider", async function () {
       const serviceProvider = addrs[0];
       const commands = [
-        createTransferCommand(customer2.address, merchant.address, parseUSDC(100)),
-        createTransferCommand(customer2.address, serviceProvider.address, parseUSDC(50)),
+        createTransferCommand(merchant.address, parseUSDC(100)),
+        createTransferCommand(serviceProvider.address, parseUSDC(50)),
       ];
       const operation = await createTransferOperation(customer2, commands);
 
@@ -166,13 +166,13 @@ describe("USDC Payment Flow", function () {
     });
 
     it("Multiple customers pay the same merchant in one transaction", async function () {
-      const op1Command = createTransferCommand(customer1.address, merchant.address, parseUSDC(100));
+      const op1Command = createTransferCommand(merchant.address, parseUSDC(100));
       const op1 = await createTransferOperation(customer1, [op1Command]);
 
-      const op2Command = createTransferCommand(customer2.address, merchant.address, parseUSDC(200));
+      const op2Command = createTransferCommand(merchant.address, parseUSDC(200));
       const op2 = await createTransferOperation(customer2, [op2Command]);
 
-      const op3Command = createTransferCommand(customer3.address, merchant.address, parseUSDC(50));
+      const op3Command = createTransferCommand(merchant.address, parseUSDC(50));
       const op3 = await createTransferOperation(customer3, [op3Command]);
 
       await processor.process([op1, op2, op3]);
@@ -199,8 +199,8 @@ describe("USDC Payment Flow", function () {
       const sellerPayout = itemPrice - marketplaceFee;
 
       const commands = [
-        createTransferCommand(buyer.address, seller.address, sellerPayout),
-        createTransferCommand(buyer.address, marketplace.address, marketplaceFee),
+        createTransferCommand(seller.address, sellerPayout),
+        createTransferCommand(marketplace.address, marketplaceFee),
       ];
       const operation = await createTransferOperation(buyer, commands);
 
@@ -221,7 +221,7 @@ describe("USDC Payment Flow", function () {
       await usdc.mint(employer.address, totalPayroll + parseUSDC(50000));
 
       const commands = employees.map((emp, i) =>
-        createTransferCommand(employer.address, emp.address, salaries[i])
+        createTransferCommand(emp.address, salaries[i])
       );
 
       const operation = await createTransferOperation(employer, commands);
@@ -236,7 +236,7 @@ describe("USDC Payment Flow", function () {
 
   describe("Replay protection and security", function () {
     it("Should prevent replay of the same operation", async function () {
-      const command = createTransferCommand(customer1.address, merchant.address, parseUSDC(10));
+      const command = createTransferCommand(merchant.address, parseUSDC(10));
       const operation = await createTransferOperation(customer1, [command]);
 
       await processor.process([operation]);
@@ -249,7 +249,7 @@ describe("USDC Payment Flow", function () {
     });
 
     it("Should prevent tampered amounts", async function () {
-      const command = createTransferCommand(customer1.address, merchant.address, parseUSDC(10));
+      const command = createTransferCommand(merchant.address, parseUSDC(10));
       const operation = await createTransferOperation(customer1, [command]);
 
       operation.commands[0].amount = parseUSDC(1000);
@@ -260,7 +260,7 @@ describe("USDC Payment Flow", function () {
 
     it("Should prevent tampered recipient", async function () {
       const attacker = addrs[0];
-      const command = createTransferCommand(customer1.address, merchant.address, parseUSDC(10));
+      const command = createTransferCommand(merchant.address, parseUSDC(10));
       const operation = await createTransferOperation(customer1, [command]);
 
       operation.commands[0].to = attacker.address;
@@ -270,7 +270,7 @@ describe("USDC Payment Flow", function () {
     });
 
     it("Should fail if sender has insufficient USDC balance", async function () {
-      const command = createTransferCommand(customer3.address, merchant.address, parseUSDC(1000));
+      const command = createTransferCommand(merchant.address, parseUSDC(1000));
       const operation = await createTransferOperation(customer3, [command]);
 
       await expect(processor.process([operation]))
@@ -278,7 +278,7 @@ describe("USDC Payment Flow", function () {
     });
 
     it("Should fail with expired deadline", async function () {
-      const command = createTransferCommand(customer1.address, merchant.address, parseUSDC(10));
+      const command = createTransferCommand(merchant.address, parseUSDC(10));
       const operation = await createTransferOperation(customer1, [command], -3600);
 
       await expect(processor.process([operation]))
@@ -286,7 +286,7 @@ describe("USDC Payment Flow", function () {
     });
 
     it("Should fail with forged signature", async function () {
-      const command = createTransferCommand(customer1.address, merchant.address, parseUSDC(10));
+      const command = createTransferCommand(merchant.address, parseUSDC(10));
       const operation = await createTransferOperation(customer1, [command]);
 
       operation.signature = randomBytes(65);
@@ -299,8 +299,8 @@ describe("USDC Payment Flow", function () {
   describe("Operation hash computation", function () {
     it("Should compute the same hash on-chain and off-chain", async function () {
       const commands = [
-        createTransferCommand(customer1.address, merchant.address, parseUSDC(100)),
-        createTransferCommand(customer1.address, addrs[0].address, parseUSDC(50)),
+        createTransferCommand(merchant.address, parseUSDC(100)),
+        createTransferCommand(addrs[0].address, parseUSDC(50)),
       ];
       const { opId } = generateOpIdAndHash(commands, Math.floor(Date.now() / 1000) + 3600);
       const offChainHash = calculateOperationHash(commands, opId);
@@ -311,7 +311,7 @@ describe("USDC Payment Flow", function () {
 
     it("Different op IDs produce different hashes", async function () {
       const commands = [
-        createTransferCommand(customer1.address, merchant.address, parseUSDC(100)),
+        createTransferCommand(merchant.address, parseUSDC(100)),
       ];
 
       const hash1 = calculateOperationHash(commands, BigInt(1));
@@ -324,8 +324,8 @@ describe("USDC Payment Flow", function () {
   describe("Events", function () {
     it("Should emit CommandProcessed for each transfer", async function () {
       const commands = [
-        createTransferCommand(customer1.address, merchant.address, parseUSDC(100)),
-        createTransferCommand(customer1.address, addrs[0].address, parseUSDC(50)),
+        createTransferCommand(merchant.address, parseUSDC(100)),
+        createTransferCommand(addrs[0].address, parseUSDC(50)),
       ];
       const operation = await createTransferOperation(customer1, commands);
 
@@ -348,7 +348,7 @@ describe("USDC Payment Flow", function () {
     });
 
     it("Should emit OperationProcessed with correct op_id", async function () {
-      const command = createTransferCommand(customer1.address, merchant.address, parseUSDC(10));
+      const command = createTransferCommand(merchant.address, parseUSDC(10));
       const operation = await createTransferOperation(customer1, [command]);
 
       await expect(processor.process([operation]))
