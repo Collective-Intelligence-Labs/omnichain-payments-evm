@@ -3,6 +3,7 @@ test/.placeholder
 build
 node_modules
 .env
+ui/dist
 
 
 .DS_Store

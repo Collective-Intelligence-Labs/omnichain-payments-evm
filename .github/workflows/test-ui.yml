@@ -48,7 +48,7 @@ jobs:
             echo "base=${{ inputs.url }}" >> "$GITHUB_OUTPUT"
           else
             OWNER="${{ github.repository_owner }}"
-            echo "base=https://${OWNER}.github.io/omnichain-payments-evm/" >> "$GITHUB_OUTPUT"
+            echo "base=https://${OWNER}.github.io/omnichain-payments-evm/ui/" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run E2E tests
