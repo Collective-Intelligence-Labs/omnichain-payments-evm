@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
-  base: '/omnichain-payments-evm/ui/',
+  base: '/omnichain-payments-evm/',
   build: {
     outDir: 'dist',
   },
