@@ -4,6 +4,9 @@ plugins {
     id("com.google.devtools.ksp")
 }
 
+val keystorePath: String? = System.getenv("ANDROID_KEYSTORE_PATH")
+val hasKeystore = !keystorePath.isNullOrEmpty()
+
 android {
     namespace = "com.omnichain.payments"
     compileSdk = 34
@@ -21,13 +24,29 @@ android {
         }
     }
 
+    signingConfigs {
+        create("release") {
+            val storeFilePath = System.getenv("ANDROID_KEYSTORE_PATH")
+            if (storeFilePath != null) {
+                storeFile = file(storeFilePath)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
+            isDebuggable = !hasKeystore
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            if (hasKeystore) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 
