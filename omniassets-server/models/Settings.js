@@ -1,19 +1,9 @@
 const mongoose = require('mongoose');
 
 const settingsSchema = new mongoose.Schema({
-  s: String,
-  r: String,
-  v: String,
-  encodedData: String,
-  data: {
-    cmd_id: Number,
-    cmd_type: Number,
-    amount: String,
-    from: String,
-    to: String,
-    fee: String,
-    deadline: Number
-  }
+  key: { type: String, required: true, unique: true },
+  value: { type: mongoose.Schema.Types.Mixed, required: true },
+  updatedAt: { type: Date, default: Date.now }
 });
 
 const Settings = mongoose.model('Settings', settingsSchema);

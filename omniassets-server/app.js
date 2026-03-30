@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const TransferData = require('./models/TransferData');
 const Operation = require('./models/Operation');
+const Settings = require('./models/Settings');
 const cron = require('node-cron');
 const sender = require('./sender');
 
@@ -164,6 +165,234 @@ app.delete("/api/admin/operations", adminAuth, async (req, res) => {
     } catch (error) {
         console.error('Error clearing operations:', error);
         res.status(500).json({ error: 'Failed to clear operations' });
+    }
+});
+
+// Admin: Get all contracts
+app.get("/api/admin/contracts", adminAuth, async (req, res) => {
+    try {
+        const contractsSetting = await Settings.findOne({ key: 'contracts' });
+        const defaultSetting = await Settings.findOne({ key: 'defaultContract' });
+        const contracts = contractsSetting ? contractsSetting.value : [];
+        const defaultContract = defaultSetting ? defaultSetting.value : null;
+        res.json({ contracts, defaultContract });
+    } catch (error) {
+        console.error('Error fetching contracts:', error);
+        res.status(500).json({ error: 'Failed to fetch contracts' });
+    }
+});
+
+// Admin: Add a new contract
+app.post("/api/admin/contracts", adminAuth, async (req, res) => {
+    const { name, address, network, tokenAddress } = req.body;
+    if (!name || !address || !network) {
+        return res.status(400).json({ error: 'name, address, and network are required' });
+    }
+    try {
+        const contractsSetting = await Settings.findOne({ key: 'contracts' });
+        const contracts = contractsSetting ? contractsSetting.value : [];
+        const existing = contracts.find(c => c.address.toLowerCase() === address.toLowerCase() && c.network === network);
+        if (existing) {
+            return res.status(409).json({ error: 'Contract already exists for this network' });
+        }
+        const newContract = {
+            id: `contract_${Date.now()}`,
+            name,
+            address,
+            network,
+            tokenAddress: tokenAddress || null,
+            addedAt: new Date().toISOString()
+        };
+        contracts.push(newContract);
+        await Settings.findOneAndUpdate(
+            { key: 'contracts' },
+            { value: contracts, updatedAt: new Date() },
+            { upsert: true, new: true }
+        );
+        if (!contractsSetting) {
+            await Settings.findOneAndUpdate(
+                { key: 'defaultContract' },
+                { value: newContract.id, updatedAt: new Date() },
+                { upsert: true }
+            );
+        }
+        res.json({ message: 'Contract added', contract: newContract });
+    } catch (error) {
+        console.error('Error adding contract:', error);
+        res.status(500).json({ error: 'Failed to add contract' });
+    }
+});
+
+// Admin: Delete a contract
+app.delete("/api/admin/contracts/:id", adminAuth, async (req, res) => {
+    try {
+        const contractsSetting = await Settings.findOne({ key: 'contracts' });
+        if (!contractsSetting) {
+            return res.status(404).json({ error: 'No contracts found' });
+        }
+        const contracts = contractsSetting.value;
+        const idx = contracts.findIndex(c => c.id === req.params.id);
+        if (idx === -1) {
+            return res.status(404).json({ error: 'Contract not found' });
+        }
+        contracts.splice(idx, 1);
+        await Settings.findOneAndUpdate(
+            { key: 'contracts' },
+            { value: contracts, updatedAt: new Date() },
+            { upsert: true }
+        );
+        const defaultSetting = await Settings.findOne({ key: 'defaultContract' });
+        if (defaultSetting && defaultSetting.value === req.params.id) {
+            const newDefault = contracts.length > 0 ? contracts[0].id : null;
+            await Settings.findOneAndUpdate(
+                { key: 'defaultContract' },
+                { value: newDefault, updatedAt: new Date() },
+                { upsert: true }
+            );
+        }
+        res.json({ message: 'Contract deleted' });
+    } catch (error) {
+        console.error('Error deleting contract:', error);
+        res.status(500).json({ error: 'Failed to delete contract' });
+    }
+});
+
+// Admin: Set default contract
+app.put("/api/admin/contracts/:id/default", adminAuth, async (req, res) => {
+    try {
+        const contractsSetting = await Settings.findOne({ key: 'contracts' });
+        if (!contractsSetting) {
+            return res.status(404).json({ error: 'No contracts found' });
+        }
+        const contract = contractsSetting.value.find(c => c.id === req.params.id);
+        if (!contract) {
+            return res.status(404).json({ error: 'Contract not found' });
+        }
+        await Settings.findOneAndUpdate(
+            { key: 'defaultContract' },
+            { value: req.params.id, updatedAt: new Date() },
+            { upsert: true }
+        );
+        res.json({ message: 'Default contract updated', contractId: req.params.id });
+    } catch (error) {
+        console.error('Error setting default contract:', error);
+        res.status(500).json({ error: 'Failed to set default contract' });
+    }
+});
+
+// Admin: Deploy Processor contract
+app.post("/api/admin/contracts/deploy", adminAuth, async (req, res) => {
+    const { network, tokenAddress } = req.body;
+    if (!network) {
+        return res.status(400).json({ error: 'network is required' });
+    }
+    try {
+        const rpcUrls = {
+            sepolia: 'https://rpc.sepolia.org/',
+            mainnet: 'https://eth.llamarpc.com',
+            localhost: 'http://127.0.0.1:8545',
+        };
+        const rpcUrl = rpcUrls[network] || network;
+        const { ethers } = require('ethers');
+        const mnemonic = process.env.MNEMONIC;
+        if (!mnemonic) {
+            return res.status(500).json({ error: 'MNEMONIC not configured on server' });
+        }
+        const provider = new ethers.JsonRpcProvider(rpcUrl);
+        const wallet = ethers.Wallet.fromPhrase(mnemonic, provider);
+
+        const processorBytecode = require('fs').readFileSync(
+            require('path').join(__dirname, 'artifacts', 'Processor.json'),
+            'utf8'
+        );
+        const artifact = JSON.parse(processorBytecode);
+
+        if (!tokenAddress) {
+            const usdcArtifact = JSON.parse(
+                require('fs').readFileSync(
+                    require('path').join(__dirname, 'artifacts', 'USDCMock.json'),
+                    'utf8'
+                )
+            );
+            const usdcFactory = new ethers.ContractFactory(usdcArtifact.abi, usdcArtifact.bytecode, wallet);
+            const usdc = await usdcFactory.deploy();
+            await usdc.waitForDeployment();
+            const usdcAddr = await usdc.getAddress();
+            const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, wallet);
+            const processor = await factory.deploy(usdcAddr);
+            await processor.waitForDeployment();
+            const processorAddress = await processor.getAddress();
+
+            const contractId = `contract_${Date.now()}`;
+            const newContract = {
+                id: contractId,
+                name: `Processor (${network})`,
+                address: processorAddress,
+                network,
+                tokenAddress: usdcAddr,
+                tokenName: 'USDCMock',
+                deployedBy: wallet.address,
+                deployedAt: new Date().toISOString()
+            };
+
+            const contractsSetting = await Settings.findOne({ key: 'contracts' });
+            const contracts = contractsSetting ? contractsSetting.value : [];
+            contracts.push(newContract);
+            await Settings.findOneAndUpdate(
+                { key: 'contracts' },
+                { value: contracts, updatedAt: new Date() },
+                { upsert: true }
+            );
+            await Settings.findOneAndUpdate(
+                { key: 'defaultContract' },
+                { value: contractId, updatedAt: new Date() },
+                { upsert: true }
+            );
+            res.json({
+                message: 'Processor and USDCMock deployed',
+                contract: newContract,
+                tokenAddress: usdcAddr,
+                transactionHash: processor.deploymentTransaction?.hash || null
+            });
+        } else {
+            const factory = new ethers.ContractFactory(artifact.abi, artifact.bytecode, wallet);
+            const processor = await factory.deploy(tokenAddress);
+            await processor.waitForDeployment();
+            const processorAddress = await processor.getAddress();
+
+            const contractId = `contract_${Date.now()}`;
+            const newContract = {
+                id: contractId,
+                name: `Processor (${network})`,
+                address: processorAddress,
+                network,
+                tokenAddress,
+                deployedBy: wallet.address,
+                deployedAt: new Date().toISOString()
+            };
+
+            const contractsSetting = await Settings.findOne({ key: 'contracts' });
+            const contracts = contractsSetting ? contractsSetting.value : [];
+            contracts.push(newContract);
+            await Settings.findOneAndUpdate(
+                { key: 'contracts' },
+                { value: contracts, updatedAt: new Date() },
+                { upsert: true }
+            );
+            await Settings.findOneAndUpdate(
+                { key: 'defaultContract' },
+                { value: contractId, updatedAt: new Date() },
+                { upsert: true }
+            );
+            res.json({
+                message: 'Processor deployed',
+                contract: newContract,
+                transactionHash: processor.deploymentTransaction?.hash || null
+            });
+        }
+    } catch (error) {
+        console.error('Error deploying contract:', error);
+        res.status(500).json({ error: `Deployment failed: ${error.message}` });
     }
 });
 
