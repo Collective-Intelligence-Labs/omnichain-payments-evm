@@ -112,10 +112,16 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
+      - name: Build UI
+        run: npm run build
+
+      - name: Start preview server
+        run: npx vite preview --port 4173 &
+
       - name: Run E2E tests
         run: npx playwright test
         env:
-          DEPLOY_URL: "https://collective-intelligence-labs.github.io/omnichain-payments-evm/ui/"
+          DEPLOY_URL: "http://localhost:4173/omnichain-payments-evm/"
 
       - name: Upload test artifacts
         uses: actions/upload-artifact@v4
