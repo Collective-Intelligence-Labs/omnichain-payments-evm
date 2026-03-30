@@ -95,7 +95,6 @@ describe("Processor Contract", function () {
     return ethers.keccak256(encodedData);
   }
   
-  
   function generateOpIandHash(commands, deadlineMin)
   {
     let opHash = BigInt(0);
