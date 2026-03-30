@@ -6,7 +6,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "nodemon app.js",
-    "start": "node app.js"
+    "start": "node app.js",
+    "copy-artifacts": "node copy-artifacts.js",
+    "build:artifacts": "cd ../cil-omniassets && npm install && npx hardhat compile && cd ../omniassets-server && node copy-artifacts.js"
   },
   "keywords": [],
   "author": "",
