@@ -1,0 +1,36 @@
+<resources>
+    <string name="app_name">OmniChain Payments</string>
+    <string name="connect_wallet">Connect Wallet</string>
+    <string name="disconnect">Disconnect</string>
+    <string name="batch_transfer">Batch Transfer</string>
+    <string name="add_recipient">Add Recipient</string>
+    <string name="recipient_address">Recipient Address</string>
+    <string name="amount">Amount</string>
+    <string name="submit_transfer">Submit Transfer</string>
+    <string name="total">Total: %1$s</string>
+    <string name="balance">Balance: %1$s %2$s</string>
+    <string name="transaction_history">Transaction History</string>
+    <string name="settings">Settings</string>
+    <string name="network">Network</string>
+    <string name="processor_address">Processor Address</string>
+    <string name="token_address">Token Address</string>
+    <string name="no_transactions">No transactions yet</string>
+    <string name="pending">Pending</string>
+    <string name="confirmed">Confirmed</string>
+    <string name="failed">Failed</string>
+    <string name="status">Status: %1$s</string>
+    <string name="remove">Remove</string>
+    <string name="gas_savings">Gas savings: %1$s%% fewer transactions</string>
+    <string name="how_it_works">How It Works</string>
+    <string name="step1_title">1. Add Recipients</string>
+    <string name="step1_desc">Enter wallet addresses and amounts for batch transfer</string>
+    <string name="step2_title">2. Sign Permit</string>
+    <string name="step2_desc">Sign EIP-2612 permit off-chain (no gas)</string>
+    <string name="step3_title">3. Submit</string>
+    <string name="step3_desc">Single on-chain transaction processes all transfers</string>
+    <string name="invalid_address">Invalid Ethereum address</string>
+    <string name="invalid_amount">Amount must be greater than zero</string>
+    <string name="insufficient_balance">Insufficient balance</string>
+    <string name="tx_submitted">Transaction submitted</string>
+    <string name="tx_hash">Tx: %1$s</string>
+</resources>
