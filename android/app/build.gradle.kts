@@ -96,7 +96,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
     implementation("org.web3j:core:4.10.0")
-    implementation("com.github.WalletConnect:WalletConnectKotlinV2:1.15.0")
     implementation("com.google.code.gson:gson:2.10.1")
 
     implementation("androidx.room:room-runtime:2.6.1")
