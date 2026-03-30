@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from 'react-router-dom';
 import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import Transfers from './components/Transfers';
 import Operations from './components/Operations';
-import { useAuth } from './hooks/useAuth';
+import { useAuth, AuthProvider } from './hooks/useAuth';
 import './App.css';
 
 function Sidebar() {
@@ -67,9 +67,11 @@ function Layout() {
 
 function App() {
   return (
-    <BrowserRouter basename="/admin">
-      <Layout />
-    </BrowserRouter>
+    <AuthProvider>
+      <BrowserRouter basename="/admin">
+        <Layout />
+      </BrowserRouter>
+    </AuthProvider>
   );
 }
 
