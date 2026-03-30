@@ -1,25 +1,96 @@
-name: Test Deployed UI
+name: Test UI
 
 on:
-  workflow_run:
-    workflows: ['Deploy UI to GitHub Pages']
-    types:
-      - completed
+  push:
+    branches: [main, experiments]
+    paths:
+      - 'ui/**'
+      - 'omniassets-ui/**'
+      - 'omniassets-server/**'
+  pull_request:
+    paths:
+      - 'ui/**'
+      - 'omniassets-ui/**'
+      - 'omniassets-server/**'
   workflow_dispatch:
-    inputs:
-      url:
-        description: 'Deployed URL to test'
-        required: false
-        type: string
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
-  test:
-    if: >
-      ${{ github.event.workflow_run.conclusion == 'success' ||
-          github.event_name == 'workflow_dispatch' }}
+  test-react-ui:
+    name: React UI (Build + Lint)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+  test-vue-ui:
+    name: Vue UI (Build + Lint)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: omniassets-ui
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: omniassets-ui/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+  test-server:
+    name: Server (Install)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: omniassets-server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: omniassets-server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+  e2e-tests:
+    name: React UI E2E Tests
+    needs: test-react-ui
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -41,20 +112,10 @@ jobs:
       - name: Install Playwright browsers
         run: npx playwright install --with-deps chromium
 
-      - name: Determine deployed URL
-        id: url
-        run: |
-          if [ -n "${{ inputs.url }}" ]; then
-            echo "base=${{ inputs.url }}" >> "$GITHUB_OUTPUT"
-          else
-            OWNER="${{ github.repository_owner }}"
-            echo "base=https://${OWNER}.github.io/omnichain-payments-evm/ui/" >> "$GITHUB_OUTPUT"
-          fi
-
       - name: Run E2E tests
         run: npx playwright test
         env:
-          DEPLOY_URL: ${{ steps.url.outputs.base }}
+          DEPLOY_URL: "https://collective-intelligence-labs.github.io/omnichain-payments-evm/ui/"
 
       - name: Upload test artifacts
         uses: actions/upload-artifact@v4
@@ -63,3 +124,35 @@ jobs:
           name: playwright-report
           path: ui/playwright-report/
           retention-days: 7
+
+  create-issue-on-failure:
+    name: Create Issue on Failure
+    needs: [test-react-ui, test-vue-ui, test-server, e2e-tests]
+    if: failure() && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Create issue
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runUrl = `${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
+            const title = 'UI test failure detected';
+            const body = `## UI Test Failure\n\n` +
+              `**Commit**: ${{ github.sha }}\n` +
+              `**Branch**: ${{ github.ref_name }}\n` +
+              `**Run**: [View logs](${runUrl})\n\n` +
+              `The UI tests failed. An opencode agent should investigate and fix this issue.\n\n` +
+              `/opencode work on this`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: title,
+              body: body,
+              labels: ['bug', 'ui']
+            });
