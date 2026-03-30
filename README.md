@@ -110,6 +110,26 @@ npm run build      # production build
 npm run test:e2e   # Playwright E2E tests
 ```
 
+## Server
+
+Express.js backend server for the processor.
+
+```shell
+cd omniassets-server
+npm install
+npm start
+```
+
+## Vue UI
+
+Vue.js frontend for interacting with the processor contracts.
+
+```shell
+cd omniassets-ui
+npm install
+npm run serve
+```
+
 ## License
 
 MIT

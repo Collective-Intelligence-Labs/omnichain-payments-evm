@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'ui/**'
+      - 'omniassets-ui/**'
   workflow_dispatch:
 
 permissions:

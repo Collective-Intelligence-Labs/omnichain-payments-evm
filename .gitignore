@@ -4,6 +4,8 @@ build
 node_modules
 .env
 ui/dist
-
-
 .DS_Store
+.vscode
+artifacts-dbg
+contracts-dbg
+dbg.project.json
