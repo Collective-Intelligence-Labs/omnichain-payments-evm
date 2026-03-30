@@ -4,6 +4,7 @@ import Login from './components/Login';
 import Dashboard from './components/Dashboard';
 import Transfers from './components/Transfers';
 import Operations from './components/Operations';
+import Contracts from './components/Contracts';
 import { useAuth, AuthProvider } from './hooks/useAuth';
 import './App.css';
 
@@ -34,6 +35,12 @@ function Sidebar() {
           </svg>
           Operations
         </NavLink>
+        <NavLink to="/contracts" className={({ isActive }) => `nav-link ${isActive ? 'active' : ''}`}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2v-4M9 21H5a2 2 0 0 1-2-2v-4m0-4h18" />
+          </svg>
+          Contracts
+        </NavLink>
       </div>
     </nav>
   );
@@ -58,6 +65,7 @@ function Layout() {
           <Route path="/" element={<Dashboard />} />
           <Route path="/transfers" element={<Transfers />} />
           <Route path="/operations" element={<Operations />} />
+          <Route path="/contracts" element={<Contracts />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </div>
