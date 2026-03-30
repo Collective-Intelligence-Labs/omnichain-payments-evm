@@ -4,6 +4,8 @@ build
 node_modules
 .env
 ui/dist
+admin/dist
+omniassets-ui/dist
 .DS_Store
 .vscode
 artifacts-dbg

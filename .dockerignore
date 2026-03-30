@@ -1,0 +1,10 @@
+node_modules
+dist
+.env
+.git
+.github
+android
+*.md
+.vscode
+.DS_Store
+netlify.toml

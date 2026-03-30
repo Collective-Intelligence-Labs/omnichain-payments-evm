@@ -130,6 +130,63 @@ npm install
 npm run serve
 ```
 
+## Docker Deployment
+
+### Quick Start
+
+```shell
+# Copy environment file and configure
+cp .env.example .env
+# Edit .env with your MNEMONIC and ADMIN_SECRET
+
+# Build and start all services
+docker compose up -d --build
+
+# View logs
+docker compose logs -f
+```
+
+### Services
+
+| Service | Port | Description |
+|---|---|---|
+| `app` | 80 | nginx serving all frontends + API proxy |
+| `server` | 3000 | Express.js backend (internal) |
+| `mongodb` | 27017 | MongoDB database (internal) |
+
+### URLs
+
+| Path | Description |
+|---|---|
+| `http://localhost/` | React UI (redirects to /omnichain-payments-evm/) |
+| `http://localhost/vue/` | Vue UI |
+| `http://localhost/admin/` | Admin Panel |
+
+### Admin Panel
+
+The admin panel at `/admin/` provides:
+- **Dashboard** - System stats, pending transfers, MongoDB status
+- **Transfers** - View and manage pending transfers with pagination
+- **Operations** - View and clear operation history
+
+Authenticate with the `ADMIN_SECRET` defined in your `.env` file.
+
+### Environment Variables
+
+| Variable | Description | Default |
+|---|---|---|
+| `MONGODB_URI` | MongoDB connection string | `mongodb://mongodb:27017/omniassets` |
+| `PORT` | Server port | `3000` |
+| `MNEMONIC` | Wallet mnemonic for blockchain transactions | - |
+| `ADMIN_SECRET` | Admin panel authentication secret | `admin-secret-change-me` |
+
+### Stopping
+
+```shell
+docker compose down        # Stop containers
+docker compose down -v     # Stop containers and remove volumes
+```
+
 ## License
 
 MIT

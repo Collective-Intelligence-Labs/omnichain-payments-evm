@@ -1,0 +1,7 @@
+FROM node:20-alpine
+WORKDIR /app
+COPY omniassets-server/package.json omniassets-server/package-lock.json* ./
+RUN npm ci --omit=dev
+COPY omniassets-server/ ./
+EXPOSE 3000
+CMD ["node", "app.js"]
