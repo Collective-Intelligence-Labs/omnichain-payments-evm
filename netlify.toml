@@ -1,0 +1,11 @@
+[build]
+  command = "cd ui && npm ci && npm run build"
+  publish = "ui/dist"
+
+[build.environment]
+  VITE_BASE = "/"
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
